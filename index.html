@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>PCB Pinout Creator v19.1 (Multiple Selection)</title>
+    <style>
+        :root {
+            --editor-bg: #333;
+            --controls-bg: #ffffff;
+            --border-color: #cccccc;
+            --shadow-color: rgba(0,0,0,0.15);
+            --text-color: #333333;
+            --primary-color: #007bff;
+            --secondary-color: #6c757d;
+            --selection-border: #ff5722;
+            --image-selection-color: #007bff;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            margin: 0;
+            height: 100vh;
+            background-color: var(--editor-bg);
+            color: var(--text-color);
+            overflow: hidden;
+        }
+        
+        * { box-sizing: border-box; }
+
+        /* --- Controls Panel --- */
+        #controls-panel { width: 280px; padding: 20px; background-color: var(--controls-bg); box-shadow: 2px 0 5px var(--shadow-color); z-index: 20; display: flex; flex-direction: column; overflow-y: auto; }
+        #controls-panel h2, h3 { margin-top: 20px; padding-top:15px; border-top: 1px solid #eee; margin-bottom: 15px; }
+        #controls-panel h2:first-child, h3:first-child { margin-top: 0; border-top: none; padding-top:0; }
+        .control-group { margin-bottom: 15px; }
+        .control-group label { display: block; margin-bottom: 5px; font-weight: 600; font-size: 0.9em; }
+        .control-group input[type="text"], .control-group input[type="number"] { width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; }
+        .control-group input[type="color"] { width: 100%; height: 40px; padding: 0; border: none; background: none; cursor: pointer; }
+        button { width: 100%; padding: 10px; background-color: var(--primary-color); color: white; border: none; border-radius: 4px; font-size: 1em; cursor: pointer; transition: background-color 0.2s; }
+        button:hover { background-color: #0056b3; }
+        button.danger { background-color: #dc3545; }
+        button.danger:hover { background-color: #c82333; }
+        #pin-editor, #alignment-tools, #delete-selection-btn { display: none; }
+        .tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); gap: 5px; }
+        .tool-grid button, .tool-row button { background-color: var(--secondary-color); padding: 8px; font-size: 1em; line-height: 1; }
+        .tool-grid button:hover, .tool-row button:hover { background-color: #5a6268; }
+        .tool-row { display: flex; gap: 5px; margin-top: 10px; align-items: center; }
+        .tool-row button { flex: 1; font-size: 0.9em; }
+        #pin-editor .control-group button { margin-top: 5px; }
+
+        /* --- Editor Area and Artboard --- */
+        #editor-area { flex-grow: 1; position: relative; overflow: hidden; cursor: default; }
+        #editor-area.panning { cursor: grabbing; }
+        #artboard { position: absolute; background-color: white; box-shadow: 0 0 20px rgba(0,0,0,0.5); transform-origin: 0 0; overflow: hidden; }
+        .artboard-resize-handle { position: absolute; width: 12px; height: 12px; background-color: var(--primary-color); border: 2px solid white; border-radius: 2px; z-index: 150; bottom: -6px; right: -6px; cursor: se-resize; }
+        
+        /* --- PCB Image --- */
+        .image-wrapper { position: absolute; cursor: grab; border: 2px dashed transparent; }
+        .image-wrapper.selected { border-color: var(--image-selection-color); z-index: 50; }
+        .image-wrapper img { display: block; width: 100%; height: 100%; pointer-events: none; }
+        .image-wrapper .image-resize-handle { position: absolute; width: 10px; height: 10px; background: white; border: 1px solid #333; bottom: -5px; right: -5px; cursor: se-resize; display: none; }
+        .image-wrapper.selected .image-resize-handle { display: block; }
+
+        /* --- Selection Box --- */
+        #selection-box { position: absolute; border: 1px dashed var(--primary-color); background-color: rgba(0, 123, 255, 0.2); z-index: 1000; display: none; }
+        
+        /* --- FINAL PIN STYLE ARCHITECTURE --- */
+        .pin { 
+            position: absolute; 
+            display: flex; 
+            align-items: stretch; 
+            border: 1px solid #aaa; 
+            border-radius: 4px; 
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.2); 
+            cursor: grab; 
+            font-size: 14px; 
+            user-select: none; 
+            z-index: 10;
+            /* JS defines --pin-grosor (thickness), CSS applies it to height. */
+            height: var(--pin-grosor, auto); 
+            width: max-content;
+        }
+        .pin.selected { border: 2px solid var(--selection-border); z-index: 100; }
+        
+        .pin-id { display: flex; justify-content: center; align-items: center; padding: 6px 10px; font-weight: bold; color: white; background-color: #777; border-radius: 3px 0 0 3px; }
+        .pin-label { 
+            display: flex; justify-content: center; align-items: center; padding: 6px 10px; white-space: nowrap;
+            /* JS defines --pin-longitud (length), CSS applies it to the label's width. */
+            width: var(--pin-longitud, auto);
+        }
+        
+        .pin.vertical {
+            flex-direction: column;
+            /* CSS swaps properties based on the variables */
+            width: var(--pin-grosor, auto);
+            height: var(--pin-longitud, max-content);
+        }
+        .pin.vertical .pin-label {
+            width: 100%; /* The label width adjusts to the total thickness */
+        }
+        .pin.vertical .pin-id { border-radius: 3px 3px 0 0; width: 100%; flex-grow: 1; flex-basis: 0; }
+        .pin.vertical .pin-label { border-radius: 0 0 3px 3px; flex-grow: 1; flex-basis: 0; padding: 10px 6px; }
+        .pin.vertical .pin-id { padding: 10px 6px; }
+        .pin.vertical .pin-id span, .pin.vertical .pin-label span { display: inline-block; writing-mode: vertical-rl; transform: rotate(180deg); text-orientation: mixed; }
+        
+        .pin.flipped { flex-direction: row-reverse; }
+        .pin.flipped .pin-id { border-radius: 0 3px 3px 0; }
+        .pin.flipped .pin-label { border-radius: 3px 0 0 3px; }
+        .pin.vertical.flipped { flex-direction: column-reverse; }
+        .pin.vertical.flipped .pin-id { border-radius: 0 0 3px 3px; }
+        .pin.vertical.flipped .pin-label { border-radius: 3px 3px 0 0; }
+    </style>
+</head>
+<body>
+
+    <div id="controls-panel">
+        <h2>Tools</h2>
+        <div class="control-group"><label for="image-loader">Load Image(s)</label><input type="file" id="image-loader" accept="image/*" multiple></div>
+        <h3>Artboard</h3>
+        <div class="control-group"><label for="artboard-width">Width (px)</label><input type="number" id="artboard-width" min="10"></div>
+        <div class="control-group"><label for="artboard-height">Height (px)</label><input type="number" id="artboard-height" min="10"></div>
+        <h3>Add Header</h3>
+        <div class="control-group"><label for="num-pins">Number of Pins</label><input type="number" id="num-pins" value="8" min="1"></div>
+        <div class="control-group"><label for="num-rows">Number of Rows</label><input type="number" id="num-rows" value="1" min="1"></div>
+        <button id="add-header-btn">Add Header</button>
+        
+        <div id="alignment-tools">
+            <h3>Arrange Selection</h3>
+            <div class="control-group pin-specific-control"><label for="selection-length-input">Function Length (px)</label><input type="number" id="selection-length-input" min="10" placeholder="auto"></div>
+            <div class="control-group pin-specific-control"><label for="selection-thickness-input">Pin Thickness (px)</label><input type="number" id="selection-thickness-input" min="10" placeholder="auto"></div>
+            <div class="control-group"><label>Align</label><div class="tool-grid">
+                <button id="align-left-btn" title="Align Left">←</button>
+                <button id="align-vcenter-btn" title="Align Vertical Centers">_</button>
+                <button id="align-right-btn" title="Align Right">→</button>
+                <button id="align-top-btn" title="Align Top">↑</button>
+                <button id="align-hcenter-btn" title="Align Horizontal Centers">|</button>
+                <button id="align-bottom-btn" title="Align Bottom">↓</button>
+            </div></div>
+            <div class="control-group"><label>Distribute (3+ items)</label><div class="tool-row">
+                <button id="distribute-h-btn">Horizontal</button>
+                <button id="distribute-v-btn">Vertical</button>
+            </div></div>
+            <div class="control-group">
+                <label for="tidy-gap-input">Tidy with Spacing (px)</label>
+                <div class="tool-row">
+                    <input type="number" id="tidy-gap-input" value="10" min="0" style="width: 70px; text-align: center;">
+                    <button id="tidy-h-btn">Horizontal</button>
+                    <button id="tidy-v-btn">Vertical</button>
+                </div>
+            </div>
+            <div class="control-group"><label>Actions</label><div class="tool-row">
+                <button id="rotate-selection-btn">Rotate ↻</button>
+                <button id="flip-selection-btn">Flip ⇄</button>
+            </div></div>
+        </div>
+
+        <div id="pin-editor">
+            <h3>Edit Pin</h3>
+            <div class="control-group"><label for="pin-id-text">Tag</label><input type="text" id="pin-id-text"></div>
+            <div class="control-group"><label for="pin-label-text">Function</label><input type="text" id="pin-label-text"></div>
+            <div class="control-group"><label for="pin-length-input">Function Length (px)</label><input type="number" id="pin-length-input" min="10" placeholder="auto"></div>
+            <div class="control-group"><label for="pin-thickness-input">Pin Thickness (px)</label><input type="number" id="pin-thickness-input" min="10" placeholder="auto"></div>
+            <div class="control-group"><label for="pin-id-color">Tag Color</label><input type="color" id="pin-id-color" value="#777777"></div>
+            <div class="control-group"><label>Actions</label><div class="tool-row">
+                <button id="rotate-pin-btn">Rotate ↻</button>
+                <button id="flip-pin-btn">Flip ⇄</button>
+            </div></div>
+            <div class="control-group"><button id="update-pin-btn">Apply Changes</button></div>
+        </div>
+
+        <button id="delete-selection-btn" class="danger">Delete Selection</button>
+    </div>
+
+    <div id="editor-area">
+        <div id="selection-box"></div>
+        <div id="artboard"></div>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // --- Element References and State ---
+        const editorArea = document.getElementById('editor-area');
+        const artboard = document.getElementById('artboard');
+        const alignmentTools = document.getElementById('alignment-tools');
+        const pinEditor = document.getElementById('pin-editor');
+        const deleteSelectionBtn = document.getElementById('delete-selection-btn');
+        const selectionBox = document.getElementById('selection-box');
+        const artboardWidthInput = document.getElementById('artboard-width');
+        const artboardHeightInput = document.getElementById('artboard-height');
+        const pinLengthInput = document.getElementById('pin-length-input');
+        const selectionLengthInput = document.getElementById('selection-length-input');
+        const pinThicknessInput = document.getElementById('pin-thickness-input');
+        const selectionThicknessInput = document.getElementById('selection-thickness-input');
+        
+        let selectionGroup = [];
+        let viewScale = 1, viewTranslateX = 0, viewTranslateY = 0;
+        let isPanning = false, isDragging = false, isSelecting = false, isResizingArtboard = false, isResizingImage = false;
+        let startX, startY;
+        let dragOffsets = new Map();
+        
+        function initializeApp() {
+            const artboardResizeHandle = document.createElement('div');
+            artboardResizeHandle.className = 'artboard-resize-handle';
+            artboard.appendChild(artboardResizeHandle);
+            addEventListeners();
+            setArtboardSize(800, 600);
+            centerArtboard();
+        }
+
+        function addEventListeners() {
+            document.getElementById('image-loader').addEventListener('change', onImageLoad);
+            artboardWidthInput.addEventListener('input', onArtboardSizeInput);
+            artboardHeightInput.addEventListener('input', onArtboardSizeInput);
+            document.getElementById('add-header-btn').addEventListener('click', addHeader);
+            document.getElementById('update-pin-btn').addEventListener('click', updatePin);
+            document.getElementById('rotate-pin-btn').addEventListener('click', rotateSelection);
+            document.getElementById('flip-pin-btn').addEventListener('click', flipSelection);
+            document.getElementById('delete-selection-btn').addEventListener('click', deleteSelected);
+            pinLengthInput.addEventListener('input', () => setPinLength(selectionGroup, pinLengthInput.value));
+            selectionLengthInput.addEventListener('input', () => setPinLength(selectionGroup, selectionLengthInput.value));
+            pinThicknessInput.addEventListener('input', () => setPinThickness(selectionGroup, pinThicknessInput.value));
+            selectionThicknessInput.addEventListener('input', () => setPinThickness(selectionGroup, selectionThicknessInput.value));
+            document.getElementById('align-left-btn').addEventListener('click', () => alignElements('left'));
+            document.getElementById('align-right-btn').addEventListener('click', () => alignElements('right'));
+            document.getElementById('align-top-btn').addEventListener('click', () => alignElements('top'));
+            document.getElementById('align-bottom-btn').addEventListener('click', () => alignElements('bottom'));
+            document.getElementById('align-vcenter-btn').addEventListener('click', () => alignElements('vcenter'));
+            document.getElementById('align-hcenter-btn').addEventListener('click', () => alignElements('hcenter'));
+            document.getElementById('distribute-h-btn').addEventListener('click', () => distributeElements('horizontal'));
+            document.getElementById('distribute-v-btn').addEventListener('click', () => distributeElements('vertical'));
+            document.getElementById('tidy-h-btn').addEventListener('click', () => tidyElements('horizontal'));
+            document.getElementById('tidy-v-btn').addEventListener('click', () => tidyElements('vertical'));
+            document.getElementById('rotate-selection-btn').addEventListener('click', rotateSelection);
+            document.getElementById('flip-selection-btn').addEventListener('click', flipSelection);
+            artboard.querySelector('.artboard-resize-handle').addEventListener('mousedown', onResizeArtboardMouseDown);
+            editorArea.addEventListener('mousedown', onEditorMouseDown);
+            editorArea.addEventListener('wheel', onEditorWheel);
+            window.addEventListener('keydown', handleKeyPress);
+            window.addEventListener('keyup', handleKeyRelease);
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        }
+        
+        function setPinLength(pins, value) {
+            if (pins.length === 0) return;
+            const length = parseInt(value);
+            const styleValue = (!isNaN(length) && length > 0) ? `${length}px` : null;
+            pins.forEach(el => {
+                if (el.classList.contains('pin')) {
+                   el.style.setProperty('--pin-longitud', styleValue);
+                }
+            });
+        }
+        
+        function setPinThickness(pins, value) {
+            if (pins.length === 0) return;
+            const thickness = parseInt(value);
+            const styleValue = (!isNaN(thickness) && thickness > 0) ? `${thickness}px` : null;
+            pins.forEach(el => {
+                if (el.classList.contains('pin')) {
+                   el.style.setProperty('--pin-grosor', styleValue);
+                }
+            });
+        }
+
+        function updateContextualUI() {
+            const selectionSize = selectionGroup.length;
+            const containsPins = selectionGroup.some(el => el.classList.contains('pin'));
+            const containsImages = selectionGroup.some(el => el.classList.contains('image-wrapper'));
+            const onlyOnePinSelected = selectionSize === 1 && containsPins;
+            
+            pinEditor.style.display = onlyOnePinSelected ? 'block' : 'none';
+            alignmentTools.style.display = selectionSize > 1 ? 'block' : 'none';
+            deleteSelectionBtn.style.display = selectionSize > 0 ? 'block' : 'none';
+
+            if (onlyOnePinSelected) {
+                updateEditorPanel(selectionGroup[0]);
+            }
+            
+            if (selectionSize > 1) {
+                const pinSpecificControls = alignmentTools.querySelectorAll('.pin-specific-control');
+                const showPinControls = containsPins && !containsImages;
+                pinSpecificControls.forEach(c => c.style.display = showPinControls ? 'block' : 'none');
+
+                if (showPinControls) {
+                    const firstPin = selectionGroup[0];
+                    const firstLength = firstPin.style.getPropertyValue('--pin-longitud');
+                    const firstThickness = firstPin.style.getPropertyValue('--pin-grosor');
+                    const allSame = selectionGroup.every(pin => 
+                        pin.style.getPropertyValue('--pin-longitud') === firstLength &&
+                        pin.style.getPropertyValue('--pin-grosor') === firstThickness
+                    );
+                    
+                    if (allSame) {
+                        selectionLengthInput.value = firstLength ? parseInt(firstLength) : '';
+                        selectionThicknessInput.value = firstThickness ? parseInt(firstThickness) : '';
+                        selectionLengthInput.placeholder = 'auto';
+                        selectionThicknessInput.placeholder = 'auto';
+                    } else {
+                        selectionLengthInput.value = '';
+                        selectionThicknessInput.value = '';
+                        selectionLengthInput.placeholder = 'multiple';
+                        selectionThicknessInput.placeholder = 'multiple';
+                    }
+                }
+            }
+        }
+        
+        function handleElementSelection(e) {
+            e.stopPropagation();
+            const targetElement = e.currentTarget;
+            const isMultiSelect = e.ctrlKey || e.metaKey;
+            const isTargetAlreadySelected = targetElement.classList.contains('selected');
+
+            if (e.target.classList.contains('image-resize-handle')) {
+                 isResizingImage = true;
+                 startX = e.clientX;
+                 startY = e.clientY;
+                 const wrapper = targetElement;
+                 imageStartWidth = wrapper.offsetWidth;
+                 imageStartHeight = wrapper.offsetHeight;
+                 const img = wrapper.querySelector('img');
+                 imageAspectRatio = img.naturalWidth / img.naturalHeight;
+                 return;
+            }
+
+            if (!isMultiSelect && !isTargetAlreadySelected) {
+                deselectAll();
+            }
+
+            const index = selectionGroup.indexOf(targetElement);
+            if (isMultiSelect) {
+                if (index > -1) {
+                    selectionGroup.splice(index, 1);
+                    targetElement.classList.remove('selected');
+                } else {
+                    selectionGroup.push(targetElement);
+                    targetElement.classList.add('selected');
+                }
+            } else if (index === -1) {
+                selectionGroup.push(targetElement);
+                targetElement.classList.add('selected');
+            }
+            
+            updateContextualUI();
+            
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            dragOffsets.clear();
+            selectionGroup.forEach(el => {
+                dragOffsets.set(el, { x: el.offsetLeft, y: el.offsetTop });
+            });
+        }
+        
+        function tidyElements(mode) {
+             if (selectionGroup.length < 2) return;
+             const gap = parseInt(document.getElementById('tidy-gap-input').value) || 0;
+             if (mode === 'vertical') {
+                 const sorted = selectionGroup.slice().sort((a,b) => a.offsetTop - b.offsetTop);
+                 const targetLeft = sorted[0].offsetLeft;
+                 let currentTop = sorted[0].offsetTop;
+                 sorted.forEach(el => {
+                     el.style.left = `${targetLeft}px`;
+                     el.style.top = `${currentTop}px`;
+                     currentTop += el.offsetHeight + gap;
+                 });
+             } else {
+                 const sorted = selectionGroup.slice().sort((a,b) => a.offsetLeft - b.offsetLeft);
+                 const targetTop = sorted[0].offsetTop;
+                 let currentLeft = sorted[0].offsetLeft;
+                 sorted.forEach(el => {
+                     el.style.top = `${targetTop}px`;
+                     el.style.left = `${currentLeft}px`;
+                     currentLeft += el.offsetWidth + gap;
+                 });
+             }
+        }
+        
+        function deselectAll() {
+            selectionGroup.forEach(p => p.classList.remove('selected'));
+            selectionGroup = [];
+            updateContextualUI();
+        }
+
+        function handleKeyPress(e) {
+            const activeEl = document.activeElement;
+            if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) return;
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                e.preventDefault();
+                deleteSelected();
+            }
+            if (e.key === ' ' && !isPanning) {
+                e.preventDefault();
+                editorArea.classList.add('panning');
+            }
+        }
+        
+        function handleKeyRelease(e) {
+            if (e.key === ' ') {
+                editorArea.classList.remove('panning');
+            }
+        }
+        
+        function deleteSelected() {
+            selectionGroup.forEach(el => el.remove());
+            deselectAll();
+        }
+
+        function createPinElement(idText, labelText, x, y) {
+            const pin = document.createElement('div');
+            pin.className = 'pin';
+            pin.style.left = `${x}px`;
+            pin.style.top = `${y}px`;
+            pin.innerHTML = `<div class="pin-id"><span>${idText}</span></div><div class="pin-label"><span>${labelText}</span></div>`;
+            artboard.appendChild(pin);
+            pin.addEventListener('mousedown', handleElementSelection);
+        }
+        
+        function updateEditorPanel(pin) {
+            if (!pin) return;
+            document.getElementById('pin-id-text').value = pin.querySelector('.pin-id span').textContent;
+            document.getElementById('pin-label-text').value = pin.querySelector('.pin-label span').textContent;
+            document.getElementById('pin-id-color').value = rgbToHex(pin.querySelector('.pin-id').style.backgroundColor);
+            pinLengthInput.value = parseInt(pin.style.getPropertyValue('--pin-longitud')) || '';
+            pinThicknessInput.value = parseInt(pin.style.getPropertyValue('--pin-grosor')) || '';
+        }
+        
+        function updatePin() {
+            if (selectionGroup.length !== 1 || !selectionGroup[0].classList.contains('pin')) return;
+            const activePin = selectionGroup[0];
+            activePin.querySelector('.pin-id span').textContent = document.getElementById('pin-id-text').value;
+            activePin.querySelector('.pin-label span').textContent = document.getElementById('pin-label-text').value;
+            activePin.querySelector('.pin-id').style.backgroundColor = document.getElementById('pin-id-color').value;
+        }
+        
+        function rotateSelection() {
+            if (selectionGroup.length < 1) return;
+            selectionGroup.forEach(el => {
+                if (el.classList.contains('pin')) {
+                   el.classList.toggle('vertical');
+                }
+            });
+            updateContextualUI();
+        }
+
+        function flipSelection() {
+            if (selectionGroup.length < 1) return;
+            selectionGroup.forEach(el => {
+                 if (el.classList.contains('pin')) {
+                    el.classList.toggle('flipped');
+                 }
+            });
+        }
+        
+        function createImageElement(file, offset = 0) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'image-wrapper';
+            const img = document.createElement('img');
+            const handle = document.createElement('div');
+            handle.className = 'image-resize-handle';
+            wrapper.append(img, handle);
+            artboard.appendChild(wrapper);
+            wrapper.addEventListener('mousedown', handleElementSelection);
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                img.src = e.target.result;
+                img.onload = () => {
+                    const aspectRatio = img.naturalWidth / img.naturalHeight;
+                    const initialWidth = 250;
+                    wrapper.style.width = `${initialWidth}px`;
+                    wrapper.style.height = `${initialWidth / aspectRatio}px`;
+                    wrapper.style.left = `${50 + offset * 20}px`;
+                    wrapper.style.top = `${50 + offset * 20}px`;
+                };
+            };
+            reader.readAsDataURL(file);
+        }
+        
+        function onImageLoad(e) {
+            const files = e.target.files;
+            if (!files) return;
+            deselectAll();
+            for (let i = 0; i < files.length; i++) {
+                createImageElement(files[i], i);
+            }
+            e.target.value = '';
+        }
+        
+        function setArtboardSize(width, height) {
+            artboard.style.width = `${width}px`;
+            artboard.style.height = `${height}px`;
+            if (document.activeElement !== document.getElementById('artboard-width')) document.getElementById('artboard-width').value = Math.round(width);
+            if (document.activeElement !== document.getElementById('artboard-height')) document.getElementById('artboard-height').value = Math.round(height);
+        }
+
+        function centerArtboard() {
+            const artboardW = artboard.offsetWidth, artboardH = artboard.offsetHeight;
+            viewTranslateX = (editorArea.clientWidth - artboardW) / 2;
+            viewTranslateY = (editorArea.clientHeight - artboardH) / 2;
+            viewScale = 1;
+            updateViewTransform();
+        }
+        
+        function onArtboardSizeInput() {
+            const newWidth = parseInt(document.getElementById('artboard-width').value) || artboard.offsetWidth;
+            const newHeight = parseInt(document.getElementById('artboard-height').value) || artboard.offsetHeight;
+            setArtboardSize(newWidth, newHeight);
+        }
+        
+        function onResizeArtboardMouseDown(e) {
+            e.stopPropagation();
+            isResizingArtboard = true;
+            let startX = e.clientX;
+            let startY = e.clientY;
+            let artboardStartWidth = artboard.offsetWidth;
+            let artboardStartHeight = artboard.offsetHeight;
+            function onResizeArtboardMouseMove(ev) {
+                if (!isResizingArtboard) return;
+                const dx = (ev.clientX - startX) / viewScale;
+                const dy = (ev.clientY - startY) / viewScale;
+                setArtboardSize(artboardStartWidth + dx, artboardStartHeight + dy);
+            }
+            function onResizeArtboardMouseUp() {
+                isResizingArtboard = false;
+                document.removeEventListener('mousemove', onResizeArtboardMouseMove);
+                document.removeEventListener('mouseup', onResizeArtboardMouseUp);}
+            document.addEventListener('mousemove', onResizeArtboardMouseMove);
+            document.addEventListener('mouseup', onResizeArtboardMouseUp);
+        }
+        
+        function updateViewTransform() {
+            artboard.style.transform = `translate(${viewTranslateX}px, ${viewTranslateY}px) scale(${viewScale})`;
+        }
+        
+        function onEditorWheel(e) {
+            e.preventDefault();
+            const rect = editorArea.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left, mouseY = e.clientY - rect.top;
+            const scaleAmount = 1.1, oldScale = viewScale;
+            viewScale = e.deltaY < 0 ? viewScale * scaleAmount : viewScale / scaleAmount;
+            viewTranslateX = mouseX - (mouseX - viewTranslateX) * (viewScale / oldScale);
+            viewTranslateY = mouseY - (mouseY - viewTranslateY) * (viewScale / oldScale);
+            updateViewTransform();
+        }
+        
+        function onEditorMouseDown(e) {
+            e.preventDefault();
+            const target = e.target;
+            if (target === artboard || target === editorArea) {
+                deselectAll();
+                if (editorArea.classList.contains('panning')) {
+                    isPanning = true;
+                } else {
+                    isSelecting = true;
+                    selectionBox.style.display = 'block';
+                    const rect = editorArea.getBoundingClientRect();
+                    startX = e.clientX - rect.left;
+                    startY = e.clientY - rect.top;
+                    selectionBox.style.left = `${startX}px`;
+                    selectionBox.style.top = `${startY}px`;
+                    selectionBox.style.width = '0px';
+                    selectionBox.style.height = '0px';
+                }
+            }
+        }
+        
+        function onMouseMove(e) {
+            if (isResizingArtboard) {
+                return;
+            } else if (isResizingImage && selectionGroup.length > 0) {
+                 const dx = (e.clientX - startX) / viewScale;
+                 const newWidth = imageStartWidth + dx;
+                 const selectedImage = selectionGroup[0];
+                 if (newWidth > 20) {
+                     selectedImage.style.width = `${newWidth}px`;
+                     selectedImage.style.height = `${newWidth / imageAspectRatio}px`;
+                 }
+            } else if (isDragging) {
+                const dx = (e.clientX - startX) / viewScale, dy = (e.clientY - startY) / viewScale;
+                selectionGroup.forEach(el => {
+                    const offset = dragOffsets.get(el);
+                    if (offset) {
+                        el.style.left = `${offset.x + dx}px`;
+                        el.style.top = `${offset.y + dy}px`;
+                    }
+                });
+            } else if (isPanning) {
+                viewTranslateX += e.clientX - startX;
+                viewTranslateY += e.clientY - startY;
+                startX = e.clientX;
+                startY = e.clientY;
+                updateViewTransform();
+            } else if (isSelecting) {
+                const rect = editorArea.getBoundingClientRect();
+                const currentX = e.clientX - rect.left;
+                const currentY = e.clientY - rect.top;
+                const boxStartX = Math.min(startX, currentX);
+                const boxStartY = Math.min(startY, currentY);
+                selectionBox.style.width = `${Math.abs(currentX - startX)}px`;
+                selectionBox.style.height = `${Math.abs(currentY - startY)}px`;
+                selectionBox.style.left = `${boxStartX}px`;
+                selectionBox.style.top = `${boxStartY}px`;
+                checkSelectionBox(selectionBox.getBoundingClientRect());
+            }
+        }
+        
+        function onMouseUp() {
+            if (isSelecting) {
+                updateContextualUI();
+            }
+            isPanning = isResizingArtboard = isDragging = isResizingImage = isSelecting = false;
+            selectionBox.style.display = 'none';
+        }
+
+        function checkSelectionBox(boxRect) {
+            deselectAll();
+            const allSelectable = artboard.querySelectorAll('.pin, .image-wrapper');
+            allSelectable.forEach(el => {
+                const elRect = el.getBoundingClientRect();
+                const inBox = !(boxRect.right < elRect.left || boxRect.left > elRect.right || boxRect.bottom < elRect.top || boxRect.top > elRect.bottom);
+                if (inBox) {
+                    selectionGroup.push(el);
+                    el.classList.add('selected');
+                }
+            });
+        }
+        
+        function addHeader() {
+            const numPins = parseInt(document.getElementById('num-pins').value) || 1;
+            const numRows = parseInt(document.getElementById('num-rows').value) || 1;
+            const startX = 20, startY = 20, pinSpacingY = 40, rowSpacingX = 150;
+            for (let row = 0; row < numRows; row++) {
+                for (let i = 0; i < numPins; i++) {
+                    createPinElement(`P${row * numPins + i}`, 'FUNCTION', startX + row * rowSpacingX, startY + i * pinSpacingY);
+                }
+            }
+        }
+        
+        function alignElements(mode) {
+            if (selectionGroup.length < 2) return;
+            let target;
+            switch(mode) {
+                case 'left':
+                    target = Math.min(...selectionGroup.map(p => p.offsetLeft));
+                    selectionGroup.forEach(p => p.style.left = `${target}px`);
+                    break;
+                case 'right':
+                    target = Math.max(...selectionGroup.map(p => p.offsetLeft + p.offsetWidth));
+                    selectionGroup.forEach(p => p.style.left = `${target - p.offsetWidth}px`);
+                    break;
+                case 'top':
+                    target = Math.min(...selectionGroup.map(p => p.offsetTop));
+                    selectionGroup.forEach(p => p.style.top = `${target}px`);
+                    break;
+                case 'bottom':
+                    target = Math.max(...selectionGroup.map(p => p.offsetTop + p.offsetHeight));
+                    selectionGroup.forEach(p => p.style.top = `${target - p.offsetHeight}px`);
+                    break;
+                case 'hcenter':
+                    target = selectionGroup[0].offsetTop + selectionGroup[0].offsetHeight / 2;
+                    selectionGroup.forEach(p => p.style.top = `${target - p.offsetHeight / 2}px`);
+                    break;
+                case 'vcenter':
+                    target = selectionGroup[0].offsetLeft + selectionGroup[0].offsetWidth / 2;
+                    selectionGroup.forEach(p => p.style.left = `${target - p.offsetWidth / 2}px`);
+                    break;
+            }
+        }
+        
+        function distributeElements(mode) {
+            if (selectionGroup.length < 3) return;
+            if (mode === 'horizontal') {
+                const sorted = selectionGroup.slice().sort((a,b) => a.offsetLeft - b.offsetLeft);
+                const first = sorted[0], last = sorted[sorted.length - 1];
+                const totalRange = last.offsetLeft - first.offsetLeft;
+                const totalWidth = sorted.slice(1, -1).reduce((sum, p) => sum + p.offsetWidth, 0);
+                const spacing = (totalRange - totalWidth) / (sorted.length - 1);
+                let currentPos = first.offsetLeft + first.offsetWidth + spacing;
+                for (let i = 1; i < sorted.length - 1; i++) {
+                    sorted[i].style.left = `${currentPos}px`;
+                    currentPos += sorted[i].offsetWidth + spacing;
+                }
+            } else {
+                const sorted = selectionGroup.slice().sort((a,b) => a.offsetTop - b.offsetTop);
+                const first = sorted[0], last = sorted[sorted.length - 1];
+                const totalRange = last.offsetTop - first.offsetTop;
+                const totalHeight = sorted.slice(1, -1).reduce((sum, p) => sum + p.offsetHeight, 0);
+                const spacing = (totalRange - totalHeight) / (sorted.length - 1);
+                let currentPos = first.offsetTop + first.offsetHeight + spacing;
+                for (let i = 1; i < sorted.length - 1; i++) {
+                    sorted[i].style.top = `${currentPos}px`;
+                    currentPos += sorted[i].offsetHeight + spacing;
+                }
+            }
+        }
+        
+        function rgbToHex(rgb) {
+            if (!rgb || !rgb.startsWith('rgb')) return '#777777';
+            let [r, g, b] = rgb.match(/\d+/g).map(Number);
+            return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
+        }
+        
+        initializeApp();
+    });
+    </script>
+</body>
+</html>
