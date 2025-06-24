@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>PCB Pinout Creator v24.3 (Image Resize Panel)</title>
+    <title>PCB Pinout Creator </title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
         :root {
             --editor-bg: #333;
@@ -96,7 +97,7 @@
         .artboard-resize-handle { position: absolute; width: 12px; height: 12px; background-color: var(--primary-color); border: 2px solid white; border-radius: 2px; z-index: 150; bottom: -6px; right: -6px; cursor: se-resize; }
         
         /* --- IMAGE & SELECTION STYLES --- */
-        .image-wrapper { position: absolute; cursor: grab; border: 2px dashed transparent; transform-origin: center center; } /* Added transform-origin */
+        .image-wrapper { position: absolute; cursor: grab; border: 2px dashed transparent; transform-origin: center center; }
         .image-wrapper.selected { border-color: var(--image-selection-color); z-index: 50; }
         .image-wrapper img { display: block; width: 100%; height: 100%; pointer-events: none; }
         .image-wrapper .image-resize-handle { position: absolute; width: 10px; height: 10px; background: white; border: 1px solid #333; bottom: -5px; right: -5px; cursor: se-resize; display: none; }
@@ -282,22 +283,16 @@
         const groupBtn = document.getElementById('group-btn');
         const ungroupBtn = document.getElementById('ungroup-btn');
 
-        /**
-         * Initializes the application, sets up event listeners, and configures the initial view.
-         */
         function initializeApp() {
             addEventListeners();
             setArtboardSize(artboardWidthInput.value, artboardHeightInput.value);
             artboard.style.backgroundColor = artboardBgColorInput.value;
             centerArtboard();
-            updateUI(); // Initial UI state setup
+            updateUI();
         }
 
-        /**
-         * Centralizes all event listener assignments.
-         */
         function addEventListeners() {
-            // Left Panel Controls
+            // Left Panel
             artboardWidthInput.addEventListener('input', onArtboardSizeInput);
             artboardHeightInput.addEventListener('input', onArtboardSizeInput);
             artboardBgColorInput.addEventListener('input', (e) => { artboard.style.backgroundColor = e.target.value; });
@@ -311,7 +306,7 @@
             imageWidthInput.addEventListener('input', onImageSizeInput);
             imageHeightInput.addEventListener('input', onImageSizeInput);
 
-            // Right Panel (Toolbar) Controls
+            // Right Panel
             addImageBtn.addEventListener('click', () => imageLoader.click());
             imageLoader.addEventListener('change', onImageLoad);
             addHeaderBtn.addEventListener('click', () => { 
@@ -334,7 +329,7 @@
             document.getElementById('flip-selection-btn').addEventListener('click', flipSelection);
             deleteSelectionBtn.addEventListener('click', deleteSelected);
 
-            // Editor Area and Global Event Listeners
+            // Global
             artboard.querySelector('.artboard-resize-handle').addEventListener('mousedown', onResizeArtboardMouseDown);
             editorArea.addEventListener('mousedown', onEditorMouseDown);
             editorArea.addEventListener('wheel', onEditorWheel, { passive: false });
@@ -346,10 +341,6 @@
 
         // --- CORE UI LOGIC ---
 
-        /**
-         * Updates the entire user interface based on the current selection.
-         * It shows/hides the appropriate panels and tools in the left and right sidebars.
-         */
         function updateUI() {
             const selectionSize = selectionGroup.length;
             const isSingleSelection = selectionSize === 1;
@@ -361,20 +352,14 @@
             const isImageSelected = isSingleSelection && selectedElement.classList.contains('image-wrapper');
             const hasGroupsInSelection = selectionGroup.some(el => el.classList.contains('group-wrapper'));
 
-            // --- Left Panel Logic ---
             leftPanel.project.style.display = hasSelection ? 'none' : 'block';
             leftPanel.pin.style.display = isPinSelected ? 'block' : 'none';
             leftPanel.image.style.display = isImageSelected ? 'block' : 'none';
             leftPanel.generic.style.display = isMultiSelection || (isSingleSelection && !isPinSelected && !isImageSelected) ? 'block' : 'none';
 
-            if (isPinSelected) {
-                updatePinEditorPanel(selectedElement);
-            }
-            if (isImageSelected) {
-                updateImageEditorPanel(selectedElement);
-            }
+            if (isPinSelected) updatePinEditorPanel(selectedElement);
+            if (isImageSelected) updateImageEditorPanel(selectedElement);
 
-            // --- Right Toolbar Logic ---
             rightToolbar.group.style.display = isMultiSelection ? 'block' : 'none';
             rightToolbar.ungroup.style.display = hasSelection && hasGroupsInSelection ? 'block' : 'none';
             rightToolbar.align.style.display = isMultiSelection ? 'block' : 'none';
@@ -385,15 +370,10 @@
             rightToolbar.delete.style.display = hasSelection ? 'block' : 'none';
         }
         
-        /**
-         * Populates the pin editor panel with the properties of the selected pin.
-         * @param {HTMLElement} pin The selected pin element.
-         */
         function updatePinEditorPanel(pin) {
             if (!pin || !pin.classList.contains('pin')) return; 
             pinIdTextInput.value = pin.querySelector('.pin-id span').textContent;
             pinThicknessInput.value = (pin.style.getPropertyValue('--pin-grosor') || '22px').replace('px', '');
-
             pinFunctionsList.innerHTML = '';
             const functions = pin.querySelectorAll('.pin-function');
             functions.forEach((funcEl) => {
@@ -403,11 +383,9 @@
                 row.className = 'function-editor-row';
                 row.innerHTML = `<input type="text" value="${text}"><input type="color" value="${color}"><button class="delete-function-btn">X</button>`;
                 pinFunctionsList.appendChild(row);
-
                 const textInput = row.querySelector('input[type="text"]');
                 const colorInput = row.querySelector('input[type="color"]');
                 const deleteBtn = row.querySelector('.delete-function-btn');
-
                 textInput.addEventListener('input', (e) => { funcEl.querySelector('span').textContent = e.target.value; });
                 colorInput.addEventListener('input', (e) => { funcEl.style.backgroundColor = e.target.value; });
                 deleteBtn.addEventListener('click', () => {
@@ -421,24 +399,12 @@
             });
         }
         
-        /**
-         * Populates the image editor panel with the dimensions of the selected image.
-         * @param {HTMLElement} imageWrapper The selected image wrapper element.
-         */
         function updateImageEditorPanel(imageWrapper) {
             if (!imageWrapper || !imageWrapper.classList.contains('image-wrapper')) return;
-            // Avoid updating the input if the user is currently typing in it
-            if(document.activeElement !== imageWidthInput) {
-                imageWidthInput.value = Math.round(imageWrapper.offsetWidth);
-            }
-            if(document.activeElement !== imageHeightInput) {
-                imageHeightInput.value = Math.round(imageWrapper.offsetHeight);
-            }
+            if(document.activeElement !== imageWidthInput) imageWidthInput.value = Math.round(imageWrapper.offsetWidth);
+            if(document.activeElement !== imageHeightInput) imageHeightInput.value = Math.round(imageWrapper.offsetHeight);
         }
 
-        /**
-         * Adds a new function to the currently selected pin.
-         */
         function handleAddFunction() {
             if (selectionGroup.length !== 1 || !selectionGroup[0].classList.contains('pin')) return;
             const pin = selectionGroup[0];
@@ -461,31 +427,18 @@
         function tidyElements(mode) { if (selectionGroup.length < 2) return; const gapInput = prompt(`Enter the spacing in pixels for the ${mode} arrangement:`, "10"); const gap = parseInt(gapInput) || 0; if (mode === 'vertical') { const sorted = selectionGroup.slice().sort((a,b) => a.offsetTop - b.offsetTop); const avgLeft = sorted.reduce((sum, el) => sum + el.offsetLeft, 0) / sorted.length; let currentTop = sorted[0].offsetTop; sorted.forEach(el => { el.style.left = `${avgLeft}px`; el.style.top = `${currentTop}px`; currentTop += el.offsetHeight + gap; }); } else { const sorted = selectionGroup.slice().sort((a,b) => a.offsetLeft - b.offsetLeft); const avgTop = sorted.reduce((sum, el) => sum + el.offsetTop, 0) / sorted.length; let currentLeft = sorted[0].offsetLeft; sorted.forEach(el => { el.style.top = `${avgTop}px`; el.style.left = `${currentLeft}px`; currentLeft += el.offsetWidth + gap; }); } }
         function deleteSelected() { selectionGroup.forEach(el => el.remove()); deselectAll(); }
         
-        /**
-         * Applies the correct visual transformation to an element based on its data-rotation attribute.
-         * @param {HTMLElement} el The element to transform.
-         */
         function applyElementTransform(el) {
             const rotation = parseInt(el.dataset.rotation || 0);
             if (el.classList.contains('pin')) {
-                // For pins, rotation is handled by swapping classes
                 el.classList.remove('vertical', 'flipped');
-                if (rotation === 90) {
-                    el.classList.add('vertical');
-                } else if (rotation === 180) {
-                    el.classList.add('flipped');
-                } else if (rotation === 270) {
-                    el.classList.add('vertical', 'flipped');
-                }
+                if (rotation === 90) el.classList.add('vertical');
+                else if (rotation === 180) el.classList.add('flipped');
+                else if (rotation === 270) el.classList.add('vertical', 'flipped');
             } else if (el.classList.contains('image-wrapper')) {
-                // For images, use CSS transform
                 el.style.transform = `rotate(${rotation}deg)`;
             }
         }
 
-        /**
-         * Rotates the selected elements by 90 degrees progressively.
-         */
         function rotateSelection() {
             if (selectionGroup.length < 1) return;
             selectionGroup.forEach(el => {
@@ -496,9 +449,6 @@
             });
         }
 
-        /**
-         * Flips (rotates by 180 degrees) the selected elements.
-         */
         function flipSelection() {
             if (selectionGroup.length < 1) return;
             selectionGroup.forEach(el => {
@@ -512,22 +462,13 @@
         function createImageElement(file, offset = 0) { const wrapper = document.createElement('div'); wrapper.className = 'image-wrapper'; const img = document.createElement('img'); const handle = document.createElement('div'); handle.className = 'image-resize-handle'; wrapper.append(img, handle); artboard.appendChild(wrapper); wrapper.addEventListener('mousedown', handleElementSelection); const reader = new FileReader(); reader.onload = (e) => { img.src = e.target.result; img.onload = () => { const aspectRatio = img.naturalWidth / img.naturalHeight; const initialWidth = 250; wrapper.style.width = `${initialWidth}px`; wrapper.style.height = `${initialWidth / aspectRatio}px`; wrapper.style.left = `${50 + offset * 20}px`; wrapper.style.top = `${50 + offset * 20}px`; deselectAll(); selectionGroup = [wrapper]; wrapper.classList.add('selected'); updateUI(); }; }; reader.readAsDataURL(file); }
         function onImageLoad(e) { const files = e.target.files; if (!files) return; deselectAll(); for (let i = 0; i < files.length; i++) { createImageElement(files[i], i); } e.target.value = ''; }
         
-        /**
-         * Handles resizing an image from the left panel inputs.
-         */
         function onImageSizeInput() {
             if (selectionGroup.length !== 1 || !selectionGroup[0].classList.contains('image-wrapper')) return;
             const imageWrapper = selectionGroup[0];
-
             const newWidth = parseInt(imageWidthInput.value);
-            if (!isNaN(newWidth) && newWidth > 0) {
-                imageWrapper.style.width = `${newWidth}px`;
-            }
-
+            if (!isNaN(newWidth) && newWidth > 0) imageWrapper.style.width = `${newWidth}px`;
             const newHeight = parseInt(imageHeightInput.value);
-            if (!isNaN(newHeight) && newHeight > 0) {
-                imageWrapper.style.height = `${newHeight}px`;
-            }
+            if (!isNaN(newHeight) && newHeight > 0) imageWrapper.style.height = `${newHeight}px`;
         }
         
         // --- SELECTION HANDLING ---
@@ -550,7 +491,7 @@
         function handleKeyPress(e) { const activeEl = document.activeElement; if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) return; if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelected(); } if (e.key === ' ' && !isPanning) { e.preventDefault(); editorArea.classList.add('panning'); } if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g' && !e.shiftKey) { e.preventDefault(); groupSelection(); } if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'g') { e.preventDefault(); ungroupSelection(); } }
         function handleKeyRelease(e) { if (e.key === ' ') { editorArea.classList.remove('panning'); } }
         function onEditorMouseDown(e) { if (e.button === 1 || e.key === ' ') { e.preventDefault(); isPanning = true; startX = e.clientX; startY = e.clientY; editorArea.classList.add('panning'); return; } if (e.button === 0) { const target = e.target; if (target === artboard || target === editorArea) { e.preventDefault(); isSelecting = true; deselectAll(); selectionBox.style.display = 'block'; const rect = editorArea.getBoundingClientRect(); startX = e.clientX - rect.left; startY = e.clientY - rect.top; selectionBox.style.left = `${startX}px`; selectionBox.style.top = `${startY}px`; selectionBox.style.width = '0px'; selectionBox.style.height = '0px'; } } }
-        function onMouseMove(e) { if (isSelecting) { const rect = editorArea.getBoundingClientRect(); const currentX = e.clientX - rect.left; const currentY = e.clientY - rect.top; selectionBox.style.left = `${Math.min(startX, currentX)}px`; selectionBox.style.top = `${Math.min(startY, currentY)}px`; selectionBox.style.width = `${Math.abs(currentX - startX)}px`; selectionBox.style.height = `${Math.abs(currentY - startY)}px`; } else if (isDragging) { const dx = (e.clientX - startX) / viewScale, dy = (e.clientY - startY) / viewScale; selectionGroup.forEach(el => { const offset = dragOffsets.get(el); if (offset) { el.style.left = `${offset.x + dx}px`; el.style.top = `${offset.y + dy}px`; } }); updateUI(); /* Update panels during drag */ } else if (isPanning) { viewTranslateX += e.clientX - startX; viewTranslateY += e.clientY - startY; startX = e.clientX; startY = e.clientY; updateViewTransform(); } else if (isResizingImage) { const dx = (e.clientX - startX) / viewScale; const newWidth = imageStartWidth + dx; if (newWidth > 20) { selectionGroup[0].style.width = `${newWidth}px`; selectionGroup[0].style.height = `${newWidth / imageAspectRatio}px`; updateUI(); /* Update panels during resize */ } } }
+        function onMouseMove(e) { if (isSelecting) { const rect = editorArea.getBoundingClientRect(); const currentX = e.clientX - rect.left; const currentY = e.clientY - rect.top; selectionBox.style.left = `${Math.min(startX, currentX)}px`; selectionBox.style.top = `${Math.min(startY, currentY)}px`; selectionBox.style.width = `${Math.abs(currentX - startX)}px`; selectionBox.style.height = `${Math.abs(currentY - startY)}px`; } else if (isDragging) { const dx = (e.clientX - startX) / viewScale, dy = (e.clientY - startY) / viewScale; selectionGroup.forEach(el => { const offset = dragOffsets.get(el); if (offset) { el.style.left = `${offset.x + dx}px`; el.style.top = `${offset.y + dy}px`; } }); updateUI(); } else if (isPanning) { viewTranslateX += e.clientX - startX; viewTranslateY += e.clientY - startY; startX = e.clientX; startY = e.clientY; updateViewTransform(); } else if (isResizingImage) { const dx = (e.clientX - startX) / viewScale; const newWidth = imageStartWidth + dx; if (newWidth > 20) { selectionGroup[0].style.width = `${newWidth}px`; selectionGroup[0].style.height = `${newWidth / imageAspectRatio}px`; updateUI(); } } }
         function onMouseUp(e) { if (isSelecting) { checkSelectionBox(selectionBox.getBoundingClientRect()); updateUI(); } if (isPanning) { editorArea.classList.remove('panning'); } isPanning = isDragging = isSelecting = isResizingArtboard = isResizingImage = false; selectionBox.style.display = 'none'; }
         
         // --- ALIGNMENT & DISTRIBUTION FUNCTIONS ---
@@ -562,8 +503,56 @@
         function saveProject() { try { const serializeElements = (elementCollection) => { const serialized = []; for (const el of elementCollection) { let obj; if (el.classList.contains('pin')) { obj = { type: 'pin', left: el.offsetLeft, top: el.offsetTop, thickness: el.style.getPropertyValue('--pin-grosor') || null, idText: el.querySelector('.pin-id span').textContent, idColor: rgbToHex(el.querySelector('.pin-id').style.backgroundColor), rotation: el.dataset.rotation || 0, functions: Array.from(el.querySelectorAll('.pin-function')).map(func => ({ text: func.querySelector('span').textContent, color: rgbToHex(func.style.backgroundColor) })) }; } else if (el.classList.contains('image-wrapper')) { const img = el.querySelector('img'); obj = { type: 'image', left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight, imageData: img.src, rotation: el.dataset.rotation || 0 }; } else if (el.classList.contains('group-wrapper')) { obj = { type: 'group', left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight, elements: serializeElements(el.children) }; } if(obj) serialized.push(obj); } return serialized; }; const projectData = { version: '2.1-json', artboard: { width: artboard.offsetWidth, height: artboard.offsetHeight, backgroundColor: artboard.style.backgroundColor }, elements: serializeElements(Array.from(artboard.children).filter(c => !c.classList.contains('artboard-resize-handle'))) }; const projectJSON = JSON.stringify(projectData, null, 2); const blob = new Blob([projectJSON], { type: 'application/json' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = "my_pinout.pop"; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(link.href); } catch (error) { console.error("ERROR in saveProject function:", error); alert("An error occurred while trying to save the project. Check the console for more details."); } }
         function loadProject(event) { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = (e) => { try { const projectData = JSON.parse(e.target.result); rebuildArtboard(projectData); } catch (err) { alert('Error reading file. The file is not a valid JSON project.'); console.error("Error parsing project file:", err); } }; reader.readAsText(file); projectLoader.value = ''; }
         function rebuildArtboard(projectData) { deselectAll(); while (artboard.children.length > 1) { artboard.removeChild(artboard.firstChild); } setArtboardSize(projectData.artboard.width, projectData.artboard.height); artboard.style.backgroundColor = projectData.artboard.backgroundColor; artboardBgColorInput.value = projectData.artboard.backgroundColor; const buildElements = (elementsData, parent) => { for (const data of elementsData) { let el; if (data.type === 'pin') { el = createPinElement(data.idText, '', 0, 0); const pinId = el.querySelector('.pin-id'); const functionsContainer = el.querySelector('.pin-label-container'); pinId.style.backgroundColor = data.idColor; functionsContainer.innerHTML = data.functions.map(f => `<div class="pin-function" style="background-color: ${f.color};"><span>${f.text}</span></div>`).join(''); if (data.thickness) el.style.setProperty('--pin-grosor', data.thickness); } else if (data.type === 'image') { el = document.createElement('div'); el.className = 'image-wrapper'; const img = document.createElement('img'); img.src = data.imageData; const handle = document.createElement('div'); handle.className = 'image-resize-handle'; el.append(img, handle); el.addEventListener('mousedown', handleElementSelection); } else if (data.type === 'group') { el = document.createElement('div'); el.className = 'group-wrapper'; el.addEventListener('mousedown', handleElementSelection); buildElements(data.elements, el); } if (el) { el.style.left = `${data.left}px`; el.style.top = `${data.top}px`; if (data.width) el.style.width = `${data.width}px`; if (data.height) el.style.height = `${data.height}px`; if (data.rotation) { el.dataset.rotation = data.rotation; applyElementTransform(el); } parent.appendChild(el); } } }; buildElements(projectData.elements, artboard); updateUI(); }
-        function getEmbeddedCss() { const cssRules = []; for (const sheet of document.styleSheets) { try { if (sheet.cssRules) { for (const rule of sheet.cssRules) { cssRules.push(rule.cssText); } } } catch (e) { console.warn("Could not read CSS rule from stylesheet:", e); } } return cssRules.join('\n'); }
-        function saveArtboardAsImage() { deselectAll(); const width = artboard.offsetWidth; const height = artboard.offsetHeight; const artboardHtml = artboard.innerHTML; const embeddedCss = getEmbeddedCss() + ` #artboard { background-color: ${artboard.style.backgroundColor}; }`; const svgData = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml"><style>${embeddedCss}</style>${artboardHtml}</div></foreignObject></svg>`; const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' }); const url = URL.createObjectURL(blob); const img = new Image(); img.onload = () => { const canvas = document.createElement('canvas'); const scale = 2; canvas.width = width * scale; canvas.height = height * scale; const ctx = canvas.getContext('2d'); ctx.scale(scale, scale); ctx.drawImage(img, 0, 0); const link = document.createElement('a'); link.href = canvas.toDataURL('image/png'); link.download = 'pinout-design.png'; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); }; img.onerror = (e) => { console.error("Failed to load SVG as an image.", e); alert("Sorry, there was an error saving the image."); }; img.src = url; }
+        
+        /**
+         * Exports the artboard as a PNG. This function temporarily resets the artboard's
+         * transform and the window's scroll position to ensure html2canvas captures the
+         * entire element, not just the visible portion.
+         */
+        function saveArtboardAsImage() {
+            const selectedElements = Array.from(document.querySelectorAll('.selected'));
+            deselectAll();
+
+            // Save original state
+            const originalTransform = artboard.style.transform;
+            const scrollX = window.scrollX;
+            const scrollY = window.scrollY;
+
+            // Temporarily reset for capture
+            artboard.style.transform = 'none';
+            window.scrollTo(0, 0);
+
+            const options = {
+                scale: 2,
+                useCORS: true,
+                backgroundColor: artboard.style.backgroundColor,
+                logging: false,
+                // Give explicit dimensions to avoid viewport cropping
+                width: artboard.offsetWidth,
+                height: artboard.offsetHeight,
+                scrollX: 0,
+                scrollY: 0,
+            };
+
+            html2canvas(artboard, options).then(canvas => {
+                const link = document.createElement('a');
+                link.href = canvas.toDataURL('image/png');
+                link.download = 'pinout-design.png';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }).catch(err => {
+                console.error("html2canvas failed:", err);
+                alert("Sorry, there was an error saving the image.");
+            }).finally(() => {
+                // IMPORTANT: Restore original state regardless of success or failure
+                artboard.style.transform = originalTransform;
+                window.scrollTo(scrollX, scrollY);
+                selectedElements.forEach(el => el.classList.add('selected'));
+                updateUI();
+            });
+        }
+
         function rgbToHex(rgb) { if (!rgb || !rgb.startsWith('rgb')) return '#ffffff'; let [r, g, b] = rgb.match(/\d+/g).map(Number); return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase(); }
         
         // --- Initialize The Application ---
