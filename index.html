@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>PCB Pinout Creator </title>
+    <title>PCB Pinout Creator</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
         :root {
@@ -16,6 +16,9 @@
             --selection-border: #ff5722;
             --image-selection-color: #007bff;
             --group-selection-color: #9c27b0; /* Purple for groups */
+            --text-selection-color: #4caf50; /* Green for text */
+            --context-menu-bg: #f8f9fa;
+            --context-menu-hover: #e9ecef;
         }
 
         /* --- MAIN LAYOUT & PANELS --- */
@@ -32,7 +35,9 @@
         * { box-sizing: border-box; }
 
         .side-panel {
-            width: 280px;
+            width: 280px; /* Default width */
+            min-width: 220px; /* Minimum resize width */
+            max-width: 500px; /* Maximum resize width */
             padding: 20px;
             background-color: var(--panel-bg);
             box-shadow: 0 0 10px var(--shadow-color);
@@ -41,6 +46,18 @@
             flex-direction: column;
             overflow-y: auto;
             flex-shrink: 0;
+            position: relative; /* Needed for resize handle */
+        }
+
+        #left-panel-resizer {
+            width: 5px;
+            height: 100%;
+            position: absolute;
+            right: 0;
+            top: 0;
+            cursor: col-resize;
+            background-color: transparent;
+            z-index: 21;
         }
 
         .side-panel h2, .side-panel h3 {
@@ -56,13 +73,14 @@
         }
         
         .panel-section {
-             display: none; /* Hidden by default, controlled by JS */
+            display: none; /* Hidden by default, controlled by JS */
         }
 
         /* --- GENERIC CONTROLS --- */
         .control-group { margin-bottom: 15px; }
         .control-group label { display: block; margin-bottom: 5px; font-weight: 600; font-size: 0.9em; }
-        .control-group input[type="text"], .control-group input[type="number"] { width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; }
+        .control-group input[type="text"], .control-group input[type="number"], .control-group textarea { width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; }
+        .control-group textarea { min-height: 80px; resize: vertical; }
         .control-group input[type="color"] { width: 100%; height: 40px; padding: 2px; border: 1px solid var(--border-color); background: none; cursor: pointer; }
         button { width: 100%; padding: 10px; background-color: var(--primary-color); color: white; border: none; border-radius: 4px; font-size: 1em; cursor: pointer; transition: background-color 0.2s; margin-top: 5px; }
         button:hover { background-color: #0056b3; }
@@ -96,9 +114,12 @@
         #artboard { position: absolute; background-color: #FFFFFF; box-shadow: 0 0 20px rgba(0,0,0,0.5); transform-origin: 0 0; overflow: hidden; }
         .artboard-resize-handle { position: absolute; width: 12px; height: 12px; background-color: var(--primary-color); border: 2px solid white; border-radius: 2px; z-index: 150; bottom: -6px; right: -6px; cursor: se-resize; }
         
-        /* --- IMAGE & SELECTION STYLES --- */
-        .image-wrapper { position: absolute; cursor: grab; border: 2px dashed transparent; transform-origin: center center; }
+        /* --- IMAGE, TEXT & SELECTION STYLES --- */
+        .image-wrapper, .text-wrapper { position: absolute; cursor: grab; border: 2px dashed transparent; transform-origin: center center; }
         .image-wrapper.selected { border-color: var(--image-selection-color); z-index: 50; }
+        .text-wrapper.selected { border-color: var(--text-selection-color); z-index: 50; }
+        .text-wrapper .text-content { padding: 5px; outline: none; min-width: 20px; min-height: 20px; }
+
         .image-wrapper img { display: block; width: 100%; height: 100%; pointer-events: none; }
         .image-wrapper .image-resize-handle { position: absolute; width: 10px; height: 10px; background: white; border: 1px solid #333; bottom: -5px; right: -5px; cursor: se-resize; display: none; }
         .image-wrapper.selected .image-resize-handle { display: block; }
@@ -121,7 +142,8 @@
         .pin.vertical.flipped .pin-id { border-radius: 0 0 3px 3px; }
         .pin.vertical.flipped .pin-label-container { border-radius: 3px 3px 0 0; }
         .pin-label-container { display: flex; flex-direction: row; align-items: stretch; background-color: #f0f0f0; border-radius: 0 3px 3px 0; overflow: hidden; width: max-content; }
-        .pin-function { display: flex; align-items: center; justify-content: center; padding: 0 10px; white-space: nowrap; border-right: 1px solid rgba(0,0,0,0.1); color: #333; }
+        .pin-function { display: flex; align-items: center; justify-content: center; padding: 0 10px; white-space: nowrap; border-right: 1px solid rgba(0,0,0,0.1); }
+        .pin-function span { color: var(--text-color); }
         .pin-function:last-child { border-right: none; }
         .pin.vertical .pin-label-container { flex-direction: column; height: max-content; width: 100%; }
         .pin.vertical .pin-function { border-right: none; border-bottom: 1px solid rgba(0,0,0,0.1); padding: 10px 0; width: 100%; }
@@ -129,15 +151,58 @@
         .pin.vertical .pin-function span { writing-mode: vertical-rl; transform: rotate(180deg); text-orientation: mixed; }
 
         /* --- FUNCTION EDITOR (LEFT PANEL) --- */
-        .function-editor-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; background-color: #f9f9f9; padding: 8px; border-radius: 4px; }
-        .function-editor-row input[type="text"] { flex-grow: 1; }
-        .function-editor-row input[type="color"] { width: 32px; height: 32px; padding: 2px; flex-shrink: 0; border: 1px solid var(--border-color); }
-        .function-editor-row .delete-function-btn { background-color: #dc3545; color: white; border: none; border-radius: 50%; width: 24px; height: 24px; font-size: 12px; line-height: 24px; padding: 0; flex-shrink: 0; cursor: pointer; margin-top: 0; }
+        .function-editor-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; background-color: #f9f9f9; padding: 8px; border-radius: 4px; }
+        .function-editor-row .inputs { display: flex; flex-grow: 1; gap: 8px; min-width: 120px; align-items: center; }
+        .function-editor-row .inputs input[type="text"] { flex-grow: 1; }
+        .function-editor-row .inputs input[type="color"] { flex-shrink: 0; border: 1px solid var(--border-color); cursor: pointer; }
+        .function-editor-row .inputs .bg-color-input { width: 32px; height: 32px; padding: 2px; }
+        .function-editor-row .inputs .text-color-input { width: 24px; height: 24px; padding: 1px; }
+        .function-editor-row .actions { display: flex; gap: 5px; }
+        .function-editor-row .function-btn { background-color: #ccc; color: white; border: none; border-radius: 4px; width: 24px; height: 24px; font-size: 14px; line-height: 24px; font-weight: bold; padding: 0; flex-shrink: 0; cursor: pointer; margin-top: 0; }
+        .function-editor-row .delete-function-btn { background-color: #dc3545; }
+        .function-editor-row .move-function-btn { background-color: #007bff; }
+        
+        /* --- CONTEXT MENU --- */
+        #context-menu {
+            display: none;
+            position: absolute;
+            z-index: 3000;
+            background-color: var(--context-menu-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 5px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            min-width: 150px;
+            padding: 5px 0;
+        }
+        #context-menu ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        #context-menu li {
+            padding: 8px 15px;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+        #context-menu li:hover {
+            background-color: var(--context-menu-hover);
+        }
+        #context-menu li.disabled {
+            color: #aaa;
+            cursor: not-allowed;
+            background-color: transparent;
+        }
+        #context-menu .separator {
+            height: 1px;
+            background-color: var(--border-color);
+            margin: 5px 0;
+        }
     </style>
 </head>
 <body>
 
     <div id="left-properties-panel" class="side-panel">
+        <div id="left-panel-resizer"></div>
         
         <div id="project-properties" class="panel-section">
             <h2>File</h2>
@@ -162,6 +227,7 @@
             <h3>Functions</h3>
             <div id="pin-functions-list"></div>
             <div class="control-group"><button id="add-function-btn" class="tool-button">+ Add Function</button></div>
+            <div class="control-group"><button id="invert-functions-btn" class="tool-button">Invertir Orden</button></div>
         </div>
 
         <div id="image-properties" class="panel-section">
@@ -169,7 +235,14 @@
             <div class="control-group"><label for="image-width-input">Width (px)</label><input type="number" id="image-width-input" min="1"></div>
             <div class="control-group"><label for="image-height-input">Height (px)</label><input type="number" id="image-height-input" min="1"></div>
         </div>
-         
+        
+        <div id="text-properties" class="panel-section">
+            <h2>Text Properties</h2>
+            <div class="control-group"><label for="text-content-input">Content</label><textarea id="text-content-input"></textarea></div>
+            <div class="control-group"><label for="text-fontsize-input">Font Size (px)</label><input type="number" id="text-fontsize-input" min="1"></div>
+            <div class="control-group"><label for="text-color-input">Font Color</label><input type="color" id="text-color-input" value="#333333"></div>
+        </div>
+
         <div id="generic-properties" class="panel-section">
             <h2>Selection Properties</h2>
             <p>Multiple items or a group is selected.</p>
@@ -182,10 +255,23 @@
         <div id="selection-box"></div>
         <div id="artboard"><div class="artboard-resize-handle"></div></div>
     </div>
+    
+    <div id="context-menu">
+        <ul>
+            <li id="context-copy">Copiar</li>
+            <li id="context-cut">Cortar</li>
+            <li id="context-paste">Pegar</li>
+            <li class="separator"></li>
+            <li id="context-delete">Eliminar</li>
+        </ul>
+    </div>
 
     <div id="right-toolbar-panel" class="side-panel">
         <h2>Tools</h2>
 
+        <div class="control-group">
+            <button id="add-text-btn" class="tool-button">Add Text</button>
+        </div>
         <div class="control-group">
             <button id="add-image-btn" class="tool-button">Add Image</button>
             <input type="file" id="image-loader" accept="image/*" style="display: none;">
@@ -234,11 +320,14 @@
     <script>
     document.addEventListener('DOMContentLoaded', () => {
         // --- STATE & ELEMENT REFERENCES ---
+        const leftPanelEl = document.getElementById('left-properties-panel');
         const editorArea = document.getElementById('editor-area');
         const artboard = document.getElementById('artboard');
         const selectionBox = document.getElementById('selection-box');
+        const contextMenu = document.getElementById('context-menu');
         
         let selectionGroup = [];
+        let clipboard = null; // Our new clipboard
         let viewScale = 1, viewTranslateX = 0, viewTranslateY = 0;
         let isPanning = false, isDragging = false, isSelecting = false, isResizingArtboard = false, isResizingImage = false;
         let startX, startY, imageStartWidth, imageStartHeight, imageAspectRatio;
@@ -249,6 +338,7 @@
             project: document.getElementById('project-properties'),
             pin: document.getElementById('pin-properties'),
             image: document.getElementById('image-properties'),
+            text: document.getElementById('text-properties'),
             generic: document.getElementById('generic-properties'),
         };
         const rightToolbar = {
@@ -268,6 +358,7 @@
         const artboardBgColorInput = document.getElementById('artboard-bg-color');
         const imageLoader = document.getElementById('image-loader');
         const addImageBtn = document.getElementById('add-image-btn');
+        const addTextBtn = document.getElementById('add-text-btn');
         const addHeaderBtn = document.getElementById('add-header-btn');
         const exportPngBtn = document.getElementById('export-png-btn');
         const saveProjectBtn = document.getElementById('save-project-btn');
@@ -278,8 +369,12 @@
         const pinIdTextInput = document.getElementById('pin-id-text');
         const pinFunctionsList = document.getElementById('pin-functions-list');
         const addFunctionBtn = document.getElementById('add-function-btn');
+        const invertFunctionsBtn = document.getElementById('invert-functions-btn');
         const imageWidthInput = document.getElementById('image-width-input');
         const imageHeightInput = document.getElementById('image-height-input');
+        const textContentInput = document.getElementById('text-content-input');
+        const textFontsizeInput = document.getElementById('text-fontsize-input');
+        const textColorInput = document.getElementById('text-color-input');
         const groupBtn = document.getElementById('group-btn');
         const ungroupBtn = document.getElementById('ungroup-btn');
 
@@ -303,16 +398,23 @@
             pinThicknessInput.addEventListener('input', () => setPinThickness(selectionGroup, pinThicknessInput.value));
             pinIdTextInput.addEventListener('input', (e) => { if (selectionGroup.length === 1 && selectionGroup[0].classList.contains('pin')) { selectionGroup[0].querySelector('.pin-id span').textContent = e.target.value; }});
             addFunctionBtn.addEventListener('click', handleAddFunction);
+            invertFunctionsBtn.addEventListener('click', invertPinFunctions);
             imageWidthInput.addEventListener('input', onImageSizeInput);
             imageHeightInput.addEventListener('input', onImageSizeInput);
+            textContentInput.addEventListener('input', onTextContentInput);
+            textFontsizeInput.addEventListener('input', onTextFontsizeInput);
+            textColorInput.addEventListener('input', onTextColorInput);
+            document.getElementById('left-panel-resizer').addEventListener('mousedown', resizePanel);
+
 
             // Right Panel
             addImageBtn.addEventListener('click', () => imageLoader.click());
+            addTextBtn.addEventListener('click', addTextElement);
             imageLoader.addEventListener('change', onImageLoad);
             addHeaderBtn.addEventListener('click', () => { 
                 const numPins = prompt("How many pins does the header have?", "8");
                 if (numPins && !isNaN(numPins)) {
-                     addHeader(parseInt(numPins), 1);
+                    addHeader(parseInt(numPins), 1);
                 }
             });
             groupBtn.addEventListener('click', groupSelection);
@@ -329,14 +431,20 @@
             document.getElementById('flip-selection-btn').addEventListener('click', flipSelection);
             deleteSelectionBtn.addEventListener('click', deleteSelected);
 
-            // Global
+            // Global & Context Menu
             artboard.querySelector('.artboard-resize-handle').addEventListener('mousedown', onResizeArtboardMouseDown);
             editorArea.addEventListener('mousedown', onEditorMouseDown);
+            editorArea.addEventListener('contextmenu', showContextMenu);
+            document.addEventListener('click', hideContextMenu);
             editorArea.addEventListener('wheel', onEditorWheel, { passive: false });
             window.addEventListener('keydown', handleKeyPress);
             window.addEventListener('keyup', handleKeyRelease);
             document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('mouseup', onMouseUp);
+            document.getElementById('context-copy').addEventListener('click', copySelection);
+            document.getElementById('context-cut').addEventListener('click', cutSelection);
+            document.getElementById('context-paste').addEventListener('click', pasteSelection);
+            document.getElementById('context-delete').addEventListener('click', deleteSelected);
         }
 
         // --- CORE UI LOGIC ---
@@ -350,15 +458,26 @@
             const selectedElement = isSingleSelection ? selectionGroup[0] : null;
             const isPinSelected = isSingleSelection && selectedElement.classList.contains('pin');
             const isImageSelected = isSingleSelection && selectedElement.classList.contains('image-wrapper');
+            const isTextSelected = isSingleSelection && selectedElement.classList.contains('text-wrapper');
             const hasGroupsInSelection = selectionGroup.some(el => el.classList.contains('group-wrapper'));
 
-            leftPanel.project.style.display = hasSelection ? 'none' : 'block';
-            leftPanel.pin.style.display = isPinSelected ? 'block' : 'none';
-            leftPanel.image.style.display = isImageSelected ? 'block' : 'none';
-            leftPanel.generic.style.display = isMultiSelection || (isSingleSelection && !isPinSelected && !isImageSelected) ? 'block' : 'none';
-
-            if (isPinSelected) updatePinEditorPanel(selectedElement);
-            if (isImageSelected) updateImageEditorPanel(selectedElement);
+            // Hide all panels first
+            Object.values(leftPanel).forEach(p => p.style.display = 'none');
+            
+            if (!hasSelection) {
+                leftPanel.project.style.display = 'block';
+            } else if (isPinSelected) {
+                leftPanel.pin.style.display = 'block';
+                updatePinEditorPanel(selectedElement);
+            } else if (isImageSelected) {
+                leftPanel.image.style.display = 'block';
+                updateImageEditorPanel(selectedElement);
+            } else if (isTextSelected) {
+                leftPanel.text.style.display = 'block';
+                updateTextEditorPanel(selectedElement);
+            } else {
+                leftPanel.generic.style.display = 'block';
+            }
 
             rightToolbar.group.style.display = isMultiSelection ? 'block' : 'none';
             rightToolbar.ungroup.style.display = hasSelection && hasGroupsInSelection ? 'block' : 'none';
@@ -375,19 +494,41 @@
             pinIdTextInput.value = pin.querySelector('.pin-id span').textContent;
             pinThicknessInput.value = (pin.style.getPropertyValue('--pin-grosor') || '22px').replace('px', '');
             pinFunctionsList.innerHTML = '';
+            
             const functions = pin.querySelectorAll('.pin-function');
-            functions.forEach((funcEl) => {
-                const text = funcEl.querySelector('span').textContent;
-                const color = rgbToHex(funcEl.style.backgroundColor);
+            functions.forEach((funcEl, index) => {
+                const funcSpan = funcEl.querySelector('span');
+                const text = funcSpan.textContent;
+                const bgColor = rgbToHex(funcEl.style.backgroundColor);
+                const textColor = rgbToHex(funcSpan.style.color);
+
                 const row = document.createElement('div');
                 row.className = 'function-editor-row';
-                row.innerHTML = `<input type="text" value="${text}"><input type="color" value="${color}"><button class="delete-function-btn">X</button>`;
+                row.innerHTML = `
+                    <div class="inputs">
+                        <input type="text" value="${text}">
+                        <input type="color" class="bg-color-input" title="Background Color" value="${bgColor}">
+                        <input type="color" class="text-color-input" title="Text Color" value="${textColor}">
+                    </div>
+                    <div class="actions">
+                        <button class="function-btn move-function-btn" data-direction="up" title="Move Up">↑</button>
+                        <button class="function-btn move-function-btn" data-direction="down" title="Move Down">↓</button>
+                        <button class="function-btn delete-function-btn" title="Delete Function">X</button>
+                    </div>
+                `;
                 pinFunctionsList.appendChild(row);
+                
                 const textInput = row.querySelector('input[type="text"]');
-                const colorInput = row.querySelector('input[type="color"]');
+                const bgColorInput = row.querySelector('.bg-color-input');
+                const textColorInput = row.querySelector('.text-color-input');
                 const deleteBtn = row.querySelector('.delete-function-btn');
-                textInput.addEventListener('input', (e) => { funcEl.querySelector('span').textContent = e.target.value; });
-                colorInput.addEventListener('input', (e) => { funcEl.style.backgroundColor = e.target.value; });
+                const moveUpBtn = row.querySelector('.move-function-btn[data-direction="up"]');
+                const moveDownBtn = row.querySelector('.move-function-btn[data-direction="down"]');
+
+                textInput.addEventListener('input', (e) => { funcSpan.textContent = e.target.value; });
+                bgColorInput.addEventListener('input', (e) => { funcEl.style.backgroundColor = e.target.value; });
+                textColorInput.addEventListener('input', (e) => { funcSpan.style.color = e.target.value; });
+                
                 deleteBtn.addEventListener('click', () => {
                     if (pin.querySelectorAll('.pin-function').length > 1) {
                         funcEl.remove();
@@ -396,6 +537,9 @@
                         alert("A pin must have at least one function.");
                     }
                 });
+
+                moveUpBtn.addEventListener('click', () => movePinFunction(pin, index, 'up'));
+                moveDownBtn.addEventListener('click', () => movePinFunction(pin, index, 'down'));
             });
         }
         
@@ -403,6 +547,14 @@
             if (!imageWrapper || !imageWrapper.classList.contains('image-wrapper')) return;
             if(document.activeElement !== imageWidthInput) imageWidthInput.value = Math.round(imageWrapper.offsetWidth);
             if(document.activeElement !== imageHeightInput) imageHeightInput.value = Math.round(imageWrapper.offsetHeight);
+        }
+        
+        function updateTextEditorPanel(textWrapper) {
+            if (!textWrapper || !textWrapper.classList.contains('text-wrapper')) return;
+            const textContent = textWrapper.querySelector('.text-content');
+            if(document.activeElement !== textContentInput) textContentInput.value = textContent.innerText;
+            if(document.activeElement !== textFontsizeInput) textFontsizeInput.value = parseInt(textContent.style.fontSize) || 16;
+            if(document.activeElement !== textColorInput) textColorInput.value = rgbToHex(textContent.style.color);
         }
 
         function handleAddFunction() {
@@ -412,10 +564,54 @@
             const newFunc = document.createElement('div');
             newFunc.className = 'pin-function';
             newFunc.style.backgroundColor = '#ffffff';
-            newFunc.innerHTML = `<span>New Function</span>`;
+            newFunc.innerHTML = `<span style="color: #333333;">New Function</span>`;
             container.appendChild(newFunc);
             updatePinEditorPanel(pin);
         }
+
+        function invertPinFunctions() {
+            if (selectionGroup.length !== 1 || !selectionGroup[0].classList.contains('pin')) return;
+            const pin = selectionGroup[0];
+            const container = pin.querySelector('.pin-label-container');
+            const allFunctions = Array.from(container.children);
+            allFunctions.reverse().forEach(func => container.appendChild(func));
+            updatePinEditorPanel(pin);
+        }
+        
+        function movePinFunction(pin, currentIndex, direction) {
+            const container = pin.querySelector('.pin-label-container');
+            const allFunctions = Array.from(container.children);
+            if (direction === 'up' && currentIndex > 0) {
+                container.insertBefore(allFunctions[currentIndex], allFunctions[currentIndex - 1]);
+            } else if (direction === 'down' && currentIndex < allFunctions.length - 1) {
+                container.insertBefore(allFunctions[currentIndex + 1], allFunctions[currentIndex]);
+            }
+            updatePinEditorPanel(pin); // Refresh the UI
+        }
+
+        function resizePanel(e) {
+            e.preventDefault();
+            const startWidth = leftPanelEl.offsetWidth;
+            const startX = e.clientX;
+
+            function doDrag(e) {
+                const newWidth = startWidth + e.clientX - startX;
+                const minWidth = parseInt(getComputedStyle(leftPanelEl).minWidth);
+                const maxWidth = parseInt(getComputedStyle(leftPanelEl).maxWidth);
+                if (newWidth > minWidth && newWidth < maxWidth) {
+                    leftPanelEl.style.width = newWidth + 'px';
+                }
+            }
+
+            function stopDrag() {
+                document.documentElement.removeEventListener('mousemove', doDrag, false);
+                document.documentElement.removeEventListener('mouseup', stopDrag, false);
+            }
+
+            document.documentElement.addEventListener('mousemove', doDrag, false);
+            document.documentElement.addEventListener('mouseup', stopDrag, false);
+        }
+
 
         // --- ELEMENT MANIPULATION LOGIC ---
 
@@ -434,7 +630,7 @@
                 if (rotation === 90) el.classList.add('vertical');
                 else if (rotation === 180) el.classList.add('flipped');
                 else if (rotation === 270) el.classList.add('vertical', 'flipped');
-            } else if (el.classList.contains('image-wrapper')) {
+            } else if (el.classList.contains('image-wrapper') || el.classList.contains('text-wrapper')) {
                 el.style.transform = `rotate(${rotation}deg)`;
             }
         }
@@ -471,11 +667,53 @@
             if (!isNaN(newHeight) && newHeight > 0) imageWrapper.style.height = `${newHeight}px`;
         }
         
+        function addTextElement() {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'text-wrapper';
+            wrapper.style.left = '50px';
+            wrapper.style.top = '50px';
+
+            const content = document.createElement('div');
+            content.className = 'text-content';
+            content.contentEditable = true;
+            content.innerText = "New Text";
+            content.style.fontSize = '16px';
+            content.style.color = '#333333';
+            
+            // Sync side panel when editing directly on canvas
+            content.addEventListener('input', () => updateTextEditorPanel(wrapper));
+
+            wrapper.appendChild(content);
+            artboard.appendChild(wrapper);
+            wrapper.addEventListener('mousedown', handleElementSelection);
+
+            deselectAll();
+            selectionGroup = [wrapper];
+            wrapper.classList.add('selected');
+            updateUI();
+        }
+
+        function onTextContentInput(e) {
+            if (selectionGroup.length !== 1 || !selectionGroup[0].classList.contains('text-wrapper')) return;
+            selectionGroup[0].querySelector('.text-content').innerText = e.target.value;
+        }
+        function onTextFontsizeInput(e) {
+            if (selectionGroup.length !== 1 || !selectionGroup[0].classList.contains('text-wrapper')) return;
+            const size = parseInt(e.target.value);
+            if (!isNaN(size) && size > 0) {
+                 selectionGroup[0].querySelector('.text-content').style.fontSize = `${size}px`;
+            }
+        }
+        function onTextColorInput(e) {
+            if (selectionGroup.length !== 1 || !selectionGroup[0].classList.contains('text-wrapper')) return;
+            selectionGroup[0].querySelector('.text-content').style.color = e.target.value;
+        }
+
         // --- SELECTION HANDLING ---
 
         function deselectAll() { selectionGroup.forEach(p => p.classList.remove('selected')); selectionGroup = []; updateUI(); }
-        function handleElementSelection(e) { e.stopPropagation(); if (e.target.classList.contains('image-resize-handle')) { isResizingImage = true; startX = e.clientX; startY = e.clientY; const wrapper = e.currentTarget; imageStartWidth = wrapper.offsetWidth; imageStartHeight = wrapper.offsetHeight; const img = wrapper.querySelector('img'); imageAspectRatio = img.naturalWidth / img.naturalHeight; return; } let selectableTarget = e.currentTarget; while (selectableTarget.parentElement && selectableTarget.parentElement.id !== 'artboard') { selectableTarget = selectableTarget.parentElement; } const isMultiSelect = e.ctrlKey || e.metaKey; const isTargetAlreadySelected = selectableTarget.classList.contains('selected'); if (!isMultiSelect && !isTargetAlreadySelected) { deselectAll(); } const index = selectionGroup.indexOf(selectableTarget); if (isMultiSelect) { if (index > -1) { selectionGroup.splice(index, 1); selectableTarget.classList.remove('selected'); } else { selectionGroup.push(selectableTarget); selectableTarget.classList.add('selected'); } } else if (index === -1) { selectionGroup.push(selectableTarget); selectableTarget.classList.add('selected'); } updateUI(); isDragging = true; startX = e.clientX; startY = e.clientY; dragOffsets.clear(); selectionGroup.forEach(el => { dragOffsets.set(el, { x: el.offsetLeft, y: el.offsetTop }); }); }
-        function checkSelectionBox(boxRect) { deselectAll(); const newSelection = []; const allSelectable = artboard.querySelectorAll('.pin, .image-wrapper, .group-wrapper'); allSelectable.forEach(el => { if (el.parentElement.id === 'artboard') { const elRect = el.getBoundingClientRect(); const inBox = !(boxRect.right < elRect.left || boxRect.left > elRect.right || boxRect.bottom < elRect.top || boxRect.top > elRect.bottom); if (inBox) { newSelection.push(el); el.classList.add('selected'); } } }); selectionGroup = newSelection; }
+        function handleElementSelection(e) { e.stopPropagation(); hideContextMenu(); if (e.target.classList.contains('image-resize-handle')) { isResizingImage = true; startX = e.clientX; startY = e.clientY; const wrapper = e.currentTarget; imageStartWidth = wrapper.offsetWidth; imageStartHeight = wrapper.offsetHeight; const img = wrapper.querySelector('img'); imageAspectRatio = img.naturalWidth / img.naturalHeight; return; } let selectableTarget = e.currentTarget; while (selectableTarget.parentElement && selectableTarget.parentElement.id !== 'artboard') { selectableTarget = selectableTarget.parentElement; } const isMultiSelect = e.ctrlKey || e.metaKey; const isTargetAlreadySelected = selectableTarget.classList.contains('selected'); if (!isMultiSelect && !isTargetAlreadySelected) { deselectAll(); } const index = selectionGroup.indexOf(selectableTarget); if (isMultiSelect) { if (index > -1) { selectionGroup.splice(index, 1); selectableTarget.classList.remove('selected'); } else { selectionGroup.push(selectableTarget); selectableTarget.classList.add('selected'); } } else if (index === -1) { selectionGroup.push(selectableTarget); selectableTarget.classList.add('selected'); } updateUI(); isDragging = true; startX = e.clientX; startY = e.clientY; dragOffsets.clear(); selectionGroup.forEach(el => { dragOffsets.set(el, { x: el.offsetLeft, y: el.offsetTop }); }); }
+        function checkSelectionBox(boxRect) { deselectAll(); const newSelection = []; const allSelectable = artboard.querySelectorAll('.pin, .image-wrapper, .group-wrapper, .text-wrapper'); allSelectable.forEach(el => { if (el.parentElement.id === 'artboard') { const elRect = el.getBoundingClientRect(); const inBox = !(boxRect.right < elRect.left || boxRect.left > elRect.right || boxRect.bottom < elRect.top || boxRect.top > elRect.bottom); if (inBox) { newSelection.push(el); el.classList.add('selected'); } } }); selectionGroup = newSelection; }
 
         // --- ARTBOARD & VIEWPORT MANAGEMENT ---
 
@@ -488,37 +726,246 @@
         
         // --- MOUSE & KEYBOARD EVENT HANDLERS ---
 
-        function handleKeyPress(e) { const activeEl = document.activeElement; if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) return; if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelected(); } if (e.key === ' ' && !isPanning) { e.preventDefault(); editorArea.classList.add('panning'); } if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g' && !e.shiftKey) { e.preventDefault(); groupSelection(); } if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'g') { e.preventDefault(); ungroupSelection(); } }
+        function handleKeyPress(e) {
+            const activeEl = document.activeElement; 
+            if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) return; 
+            
+            const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+
+            if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelected(); } 
+            if (e.key === ' ' && !isPanning) { e.preventDefault(); editorArea.classList.add('panning'); } 
+            if (isCtrlOrMeta && e.key.toLowerCase() === 'g' && !e.shiftKey) { e.preventDefault(); groupSelection(); } 
+            if (isCtrlOrMeta && e.shiftKey && e.key.toLowerCase() === 'g') { e.preventDefault(); ungroupSelection(); }
+            if (isCtrlOrMeta && e.key.toLowerCase() === 'c') { e.preventDefault(); copySelection(); }
+            if (isCtrlOrMeta && e.key.toLowerCase() === 'x') { e.preventDefault(); cutSelection(); }
+            if (isCtrlOrMeta && e.key.toLowerCase() === 'v') { e.preventDefault(); pasteSelection(); }
+        }
         function handleKeyRelease(e) { if (e.key === ' ') { editorArea.classList.remove('panning'); } }
-        function onEditorMouseDown(e) { if (e.button === 1 || e.key === ' ') { e.preventDefault(); isPanning = true; startX = e.clientX; startY = e.clientY; editorArea.classList.add('panning'); return; } if (e.button === 0) { const target = e.target; if (target === artboard || target === editorArea) { e.preventDefault(); isSelecting = true; deselectAll(); selectionBox.style.display = 'block'; const rect = editorArea.getBoundingClientRect(); startX = e.clientX - rect.left; startY = e.clientY - rect.top; selectionBox.style.left = `${startX}px`; selectionBox.style.top = `${startY}px`; selectionBox.style.width = '0px'; selectionBox.style.height = '0px'; } } }
+        function onEditorMouseDown(e) { if (e.target.id === 'left-panel-resizer') return; if (e.button === 1 || e.key === ' ') { e.preventDefault(); isPanning = true; startX = e.clientX; startY = e.clientY; editorArea.classList.add('panning'); return; } if (e.button === 0) { hideContextMenu(); const target = e.target; if (target === artboard || target === editorArea) { e.preventDefault(); isSelecting = true; deselectAll(); selectionBox.style.display = 'block'; const rect = editorArea.getBoundingClientRect(); startX = e.clientX - rect.left; startY = e.clientY - rect.top; selectionBox.style.left = `${startX}px`; selectionBox.style.top = `${startY}px`; selectionBox.style.width = '0px'; selectionBox.style.height = '0px'; } } }
         function onMouseMove(e) { if (isSelecting) { const rect = editorArea.getBoundingClientRect(); const currentX = e.clientX - rect.left; const currentY = e.clientY - rect.top; selectionBox.style.left = `${Math.min(startX, currentX)}px`; selectionBox.style.top = `${Math.min(startY, currentY)}px`; selectionBox.style.width = `${Math.abs(currentX - startX)}px`; selectionBox.style.height = `${Math.abs(currentY - startY)}px`; } else if (isDragging) { const dx = (e.clientX - startX) / viewScale, dy = (e.clientY - startY) / viewScale; selectionGroup.forEach(el => { const offset = dragOffsets.get(el); if (offset) { el.style.left = `${offset.x + dx}px`; el.style.top = `${offset.y + dy}px`; } }); updateUI(); } else if (isPanning) { viewTranslateX += e.clientX - startX; viewTranslateY += e.clientY - startY; startX = e.clientX; startY = e.clientY; updateViewTransform(); } else if (isResizingImage) { const dx = (e.clientX - startX) / viewScale; const newWidth = imageStartWidth + dx; if (newWidth > 20) { selectionGroup[0].style.width = `${newWidth}px`; selectionGroup[0].style.height = `${newWidth / imageAspectRatio}px`; updateUI(); } } }
         function onMouseUp(e) { if (isSelecting) { checkSelectionBox(selectionBox.getBoundingClientRect()); updateUI(); } if (isPanning) { editorArea.classList.remove('panning'); } isPanning = isDragging = isSelecting = isResizingArtboard = isResizingImage = false; selectionBox.style.display = 'none'; }
         
-        // --- ALIGNMENT & DISTRIBUTION FUNCTIONS ---
+        // --- CONTEXT MENU LOGIC ---
+        
+        function showContextMenu(e) {
+            e.preventDefault();
+            
+            // Show only if right-clicking on a selected element
+            let targetIsSelected = false;
+            let el = e.target;
+            while(el && el !== artboard) {
+                if (el.classList.contains('selected')) {
+                    targetIsSelected = true;
+                    break;
+                }
+                el = el.parentElement;
+            }
 
-        function alignElements(mode) { if (selectionGroup.length < 2) return; let target; switch(mode) { case 'left': target = Math.min(...selectionGroup.map(p => p.offsetLeft)); selectionGroup.forEach(p => p.style.left = `${target}px`); break; case 'right': target = Math.max(...selectionGroup.map(p => p.offsetLeft + p.offsetWidth)); selectionGroup.forEach(p => p.style.left = `${target - p.offsetWidth}px`); break; case 'top': target = Math.min(...selectionGroup.map(p => p.offsetTop)); selectionGroup.forEach(p => p.style.top = `${target}px`); break; case 'bottom': target = Math.max(...selectionGroup.map(p => p.offsetTop + p.offsetHeight)); selectionGroup.forEach(p => p.style.top = `${target - p.offsetHeight}px`); break; case 'hcenter': target = selectionGroup[0].offsetTop + selectionGroup[0].offsetHeight / 2; selectionGroup.forEach(p => p.style.top = `${target - p.offsetHeight / 2}px`); break; case 'vcenter': target = selectionGroup[0].offsetLeft + selectionGroup[0].offsetWidth / 2; selectionGroup.forEach(p => p.style.left = `${target - p.offsetWidth / 2}px`); break; } }
+            if (selectionGroup.length > 0 && targetIsSelected) {
+                document.getElementById('context-paste').classList.toggle('disabled', !clipboard);
+                document.getElementById('context-copy').classList.remove('disabled');
+                document.getElementById('context-cut').classList.remove('disabled');
+                document.getElementById('context-delete').classList.remove('disabled');
+            } else {
+                 document.getElementById('context-paste').classList.toggle('disabled', !clipboard);
+                 document.getElementById('context-copy').classList.add('disabled');
+                 document.getElementById('context-cut').classList.add('disabled');
+                 document.getElementById('context-delete').classList.add('disabled');
+            }
+
+            contextMenu.style.display = 'block';
+            contextMenu.style.left = `${e.clientX}px`;
+            contextMenu.style.top = `${e.clientY}px`;
+        }
+        function hideContextMenu() {
+            contextMenu.style.display = 'none';
+        }
+
+        // --- CLIPBOARD FUNCTIONS ---
+
+        function copySelection() {
+            if (selectionGroup.length === 0) return;
+            const data = serializeElements(selectionGroup);
+            clipboard = { type: 'copy', data: data };
+        }
+        function cutSelection() {
+            if (selectionGroup.length === 0) return;
+            const data = serializeElements(selectionGroup);
+            clipboard = { type: 'cut', data: data };
+            deleteSelected();
+        }
+        function pasteSelection() {
+            if (!clipboard) return;
+            
+            const pasteOffset = 20;
+            // Apply offset for subsequent pastes
+            clipboard.data.forEach(item => {
+                item.left += pasteOffset;
+                item.top += pasteOffset;
+            });
+            
+            deselectAll();
+            const newElements = buildElements(clipboard.data, artboard);
+            selectionGroup = newElements;
+            selectionGroup.forEach(el => el.classList.add('selected'));
+            updateUI();
+
+            // Clear clipboard if it was a 'cut' operation
+            if (clipboard.type === 'cut') {
+                clipboard = null;
+            }
+        }
+
+        // --- SERIALIZATION & BUILD (REFACTORED FOR REUSE) ---
+
+        function serializeElements(elementCollection) {
+            const serialized = [];
+            for (const el of elementCollection) {
+                let obj;
+                if (el.classList.contains('pin')) {
+                    obj = { type: 'pin', left: el.offsetLeft, top: el.offsetTop, thickness: el.style.getPropertyValue('--pin-grosor') || null, idText: el.querySelector('.pin-id span').textContent, idColor: rgbToHex(el.querySelector('.pin-id').style.backgroundColor), rotation: el.dataset.rotation || 0, 
+                        functions: Array.from(el.querySelectorAll('.pin-function')).map(func => ({ 
+                            text: func.querySelector('span').textContent, 
+                            color: rgbToHex(func.style.backgroundColor),
+                            textColor: rgbToHex(func.querySelector('span').style.color)
+                        })) 
+                    };
+                } else if (el.classList.contains('image-wrapper')) {
+                    const img = el.querySelector('img');
+                    obj = { type: 'image', left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight, imageData: img.src, rotation: el.dataset.rotation || 0 };
+                } else if (el.classList.contains('text-wrapper')) {
+                    const content = el.querySelector('.text-content');
+                    obj = { type: 'text', left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight, html: content.innerHTML, color: rgbToHex(content.style.color), fontSize: content.style.fontSize, rotation: el.dataset.rotation || 0 };
+                } else if (el.classList.contains('group-wrapper')) {
+                    obj = { type: 'group', left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight, elements: serializeElements(el.children) };
+                }
+                if (obj) serialized.push(obj);
+            }
+            return serialized;
+        }
+
+        function buildElements(elementsData, parent) {
+            const createdElements = [];
+            for (const data of elementsData) {
+                let el;
+                if (data.type === 'pin') {
+                    el = createPinElement(data.idText, '', 0, 0);
+                    const pinId = el.querySelector('.pin-id');
+                    const functionsContainer = el.querySelector('.pin-label-container');
+                    pinId.style.backgroundColor = data.idColor;
+                    functionsContainer.innerHTML = data.functions.map(f => 
+                        `<div class="pin-function" style="background-color: ${f.color};"><span style="color: ${f.textColor || '#333333'};">${f.text}</span></div>`
+                    ).join('');
+                    if (data.thickness) el.style.setProperty('--pin-grosor', data.thickness);
+                } else if (data.type === 'image') {
+                    el = document.createElement('div');
+                    el.className = 'image-wrapper';
+                    const img = document.createElement('img');
+                    img.src = data.imageData;
+                    const handle = document.createElement('div');
+                    handle.className = 'image-resize-handle';
+                    el.append(img, handle);
+                    el.addEventListener('mousedown', handleElementSelection);
+                } else if (data.type === 'text') {
+                    el = document.createElement('div');
+                    el.className = 'text-wrapper';
+                    const content = document.createElement('div');
+                    content.className = 'text-content';
+                    content.contentEditable = true;
+                    content.innerHTML = data.html;
+                    content.style.fontSize = data.fontSize;
+                    content.style.color = data.color;
+                    content.addEventListener('input', () => updateTextEditorPanel(el));
+                    el.appendChild(content);
+                    el.addEventListener('mousedown', handleElementSelection);
+                } else if (data.type === 'group') {
+                    el = document.createElement('div');
+                    el.className = 'group-wrapper';
+                    el.addEventListener('mousedown', handleElementSelection);
+                    buildElements(data.elements, el); // Recursive call
+                }
+
+                if (el) {
+                    el.style.left = `${data.left}px`;
+                    el.style.top = `${data.top}px`;
+                    if (data.width) el.style.width = `${data.width}px`;
+                    if (data.height) el.style.height = `${data.height}px`;
+                    if (data.rotation) {
+                        el.dataset.rotation = data.rotation;
+                        applyElementTransform(el);
+                    }
+                    parent.appendChild(el);
+                    createdElements.push(el);
+                }
+            }
+            return createdElements;
+        }
 
         // --- SAVE, LOAD, & EXPORT FUNCTIONS ---
 
-        function saveProject() { try { const serializeElements = (elementCollection) => { const serialized = []; for (const el of elementCollection) { let obj; if (el.classList.contains('pin')) { obj = { type: 'pin', left: el.offsetLeft, top: el.offsetTop, thickness: el.style.getPropertyValue('--pin-grosor') || null, idText: el.querySelector('.pin-id span').textContent, idColor: rgbToHex(el.querySelector('.pin-id').style.backgroundColor), rotation: el.dataset.rotation || 0, functions: Array.from(el.querySelectorAll('.pin-function')).map(func => ({ text: func.querySelector('span').textContent, color: rgbToHex(func.style.backgroundColor) })) }; } else if (el.classList.contains('image-wrapper')) { const img = el.querySelector('img'); obj = { type: 'image', left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight, imageData: img.src, rotation: el.dataset.rotation || 0 }; } else if (el.classList.contains('group-wrapper')) { obj = { type: 'group', left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight, elements: serializeElements(el.children) }; } if(obj) serialized.push(obj); } return serialized; }; const projectData = { version: '2.1-json', artboard: { width: artboard.offsetWidth, height: artboard.offsetHeight, backgroundColor: artboard.style.backgroundColor }, elements: serializeElements(Array.from(artboard.children).filter(c => !c.classList.contains('artboard-resize-handle'))) }; const projectJSON = JSON.stringify(projectData, null, 2); const blob = new Blob([projectJSON], { type: 'application/json' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = "my_pinout.pop"; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(link.href); } catch (error) { console.error("ERROR in saveProject function:", error); alert("An error occurred while trying to save the project. Check the console for more details."); } }
-        function loadProject(event) { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = (e) => { try { const projectData = JSON.parse(e.target.result); rebuildArtboard(projectData); } catch (err) { alert('Error reading file. The file is not a valid JSON project.'); console.error("Error parsing project file:", err); } }; reader.readAsText(file); projectLoader.value = ''; }
-        function rebuildArtboard(projectData) { deselectAll(); while (artboard.children.length > 1) { artboard.removeChild(artboard.firstChild); } setArtboardSize(projectData.artboard.width, projectData.artboard.height); artboard.style.backgroundColor = projectData.artboard.backgroundColor; artboardBgColorInput.value = projectData.artboard.backgroundColor; const buildElements = (elementsData, parent) => { for (const data of elementsData) { let el; if (data.type === 'pin') { el = createPinElement(data.idText, '', 0, 0); const pinId = el.querySelector('.pin-id'); const functionsContainer = el.querySelector('.pin-label-container'); pinId.style.backgroundColor = data.idColor; functionsContainer.innerHTML = data.functions.map(f => `<div class="pin-function" style="background-color: ${f.color};"><span>${f.text}</span></div>`).join(''); if (data.thickness) el.style.setProperty('--pin-grosor', data.thickness); } else if (data.type === 'image') { el = document.createElement('div'); el.className = 'image-wrapper'; const img = document.createElement('img'); img.src = data.imageData; const handle = document.createElement('div'); handle.className = 'image-resize-handle'; el.append(img, handle); el.addEventListener('mousedown', handleElementSelection); } else if (data.type === 'group') { el = document.createElement('div'); el.className = 'group-wrapper'; el.addEventListener('mousedown', handleElementSelection); buildElements(data.elements, el); } if (el) { el.style.left = `${data.left}px`; el.style.top = `${data.top}px`; if (data.width) el.style.width = `${data.width}px`; if (data.height) el.style.height = `${data.height}px`; if (data.rotation) { el.dataset.rotation = data.rotation; applyElementTransform(el); } parent.appendChild(el); } } }; buildElements(projectData.elements, artboard); updateUI(); }
+        function saveProject() { 
+            try { 
+                const projectData = { 
+                    version: '2.5-json', 
+                    artboard: { 
+                        width: artboard.offsetWidth, 
+                        height: artboard.offsetHeight, 
+                        backgroundColor: artboard.style.backgroundColor 
+                    }, 
+                    elements: serializeElements(Array.from(artboard.children).filter(c => !c.classList.contains('artboard-resize-handle') && !c.id.includes('context-menu'))) 
+                }; 
+                const projectJSON = JSON.stringify(projectData, null, 2); 
+                const blob = new Blob([projectJSON], { type: 'application/json' }); 
+                const link = document.createElement('a'); 
+                link.href = URL.createObjectURL(blob); 
+                link.download = "my_pinout.pop"; 
+                document.body.appendChild(link); 
+                link.click(); 
+                document.body.removeChild(link); 
+                URL.revokeObjectURL(link.href); 
+            } catch (error) { 
+                console.error("ERROR in saveProject function:", error); 
+                alert("An error occurred while trying to save the project. Check the console for more details."); 
+            } 
+        }
+
+        function loadProject(event) { 
+            const file = event.target.files[0]; if (!file) return; 
+            const reader = new FileReader(); 
+            reader.onload = (e) => { 
+                try { 
+                    const projectData = JSON.parse(e.target.result); 
+                    rebuildArtboard(projectData); 
+                } catch (err) { 
+                    alert('Error reading file. The file is not a valid JSON project.'); 
+                    console.error("Error parsing project file:", err); 
+                } 
+            }; 
+            reader.readAsText(file); 
+            projectLoader.value = ''; 
+        }
+
+        function rebuildArtboard(projectData) { 
+            deselectAll(); 
+            while (artboard.children.length > 1) { artboard.removeChild(artboard.firstChild); } 
+            setArtboardSize(projectData.artboard.width, projectData.artboard.height); 
+            artboard.style.backgroundColor = projectData.artboard.backgroundColor; 
+            artboardBgColorInput.value = rgbToHex(projectData.artboard.backgroundColor); 
+            buildElements(projectData.elements, artboard); 
+            updateUI(); 
+        }
         
         /**
-         * Exports the artboard as a PNG. This function temporarily resets the artboard's
-         * transform and the window's scroll position to ensure html2canvas captures the
-         * entire element, not just the visible portion.
+         * Exports the artboard as a PNG.
          */
         function saveArtboardAsImage() {
-            const selectedElements = Array.from(document.querySelectorAll('.selected'));
             deselectAll();
+            hideContextMenu();
 
-            // Save original state
             const originalTransform = artboard.style.transform;
             const scrollX = window.scrollX;
             const scrollY = window.scrollY;
 
-            // Temporarily reset for capture
             artboard.style.transform = 'none';
             window.scrollTo(0, 0);
 
@@ -527,9 +974,10 @@
                 useCORS: true,
                 backgroundColor: artboard.style.backgroundColor,
                 logging: false,
-                // Give explicit dimensions to avoid viewport cropping
                 width: artboard.offsetWidth,
                 height: artboard.offsetHeight,
+                x: artboard.offsetLeft,
+                y: artboard.offsetTop,
                 scrollX: 0,
                 scrollY: 0,
             };
@@ -545,15 +993,21 @@
                 console.error("html2canvas failed:", err);
                 alert("Sorry, there was an error saving the image.");
             }).finally(() => {
-                // IMPORTANT: Restore original state regardless of success or failure
                 artboard.style.transform = originalTransform;
                 window.scrollTo(scrollX, scrollY);
-                selectedElements.forEach(el => el.classList.add('selected'));
                 updateUI();
             });
         }
 
-        function rgbToHex(rgb) { if (!rgb || !rgb.startsWith('rgb')) return '#ffffff'; let [r, g, b] = rgb.match(/\d+/g).map(Number); return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase(); }
+        function rgbToHex(rgb) { 
+            if (!rgb || !rgb.startsWith('rgb')) return rgb || '#333333'; 
+            try { 
+                let [r, g, b] = rgb.match(/\d+/g).map(Number); 
+                return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase(); 
+            } catch (e) { 
+                return '#333333'; 
+            } 
+        }
         
         // --- Initialize The Application ---
         initializeApp();
